@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "version": "0.8.0",
+  "api": {
+    "base_url": "https://www.googleapis.com/youtube/v3",
+    "api_key_env": "YOUTUBE_API_KEY",
+    "timeout_seconds": 30,
+    "retries": 4,
+    "daily_quota_soft_limit": 9500,
+    "estimated_costs": {
+      "search": 100,
+      "channels": 1,
+      "playlistItems": 1,
+      "videos": 1
+    }
+  },
+  "collection": {
+    "video_batch_size": 50,
+    "playlist_page_size": 50,
+    "max_playlist_pages_full": 200,
+    "max_videos_per_creator": 10000,
+    "metrics_recent_days": 90,
+    "incremental_max_pages": 10
+  },
+  "refresh_policy": {
+    "high": {
+      "new_video_hours": 6,
+      "metric_hours": 6
+    },
+    "normal": {
+      "new_video_hours": 24,
+      "metric_hours": 24
+    },
+    "low": {
+      "new_video_hours": 72,
+      "metric_hours": 72
+    },
+    "archive": {
+      "new_video_hours": 168,
+      "metric_hours": 168
+    }
+  },
+  "dashboard": {
+    "snapshot_points_per_video": 60,
+    "recent_discovery_limit": 1000,
+    "pending_label_limit": 300,
+    "classification_preview_limit": 300
+  }
+}
