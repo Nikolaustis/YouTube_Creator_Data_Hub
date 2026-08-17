@@ -10,7 +10,8 @@ echo [2/3] Running self-check...
 python scripts\self_check.py
 if errorlevel 1 goto :fail
 
-echo [3/3] Rebuilding Dashboard...
+echo [3/3] Rebuilding Dashboard from clean output...
+if exist "output\dashboard" rmdir /s /q "output\dashboard"
 python hub.py dashboard
 if errorlevel 1 goto :fail
 

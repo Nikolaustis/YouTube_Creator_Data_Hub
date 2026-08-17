@@ -302,7 +302,7 @@ class CreatorHub:
         source = search_source.lower().replace("-", "_")
         if source in {"web", "youtube_web_search"}:
             try:
-                raw = youtube_web_search(query, max_results=max_results, timeout=int(self.settings["api"].get("timeout_seconds", 30)))
+                raw = youtube_web_search(query, max_results=max_results, timeout=int(self.settings["api"].get("timeout_seconds", 30)), region=region, language=language)
                 for x in raw:
                     candidates.append({
                         "query": query, "source": "youtube_web_search", "rank": x["raw_search_rank"],
@@ -407,6 +407,61 @@ class CreatorHub:
             if old is None or (c.get("pre_score") or 0) > (old.get("pre_score") or 0): best[cid]=c
         result=sorted(best.values(), key=lambda x: (x.get("pre_score") or 0, -(x.get("rank") or 999999)), reverse=True)
         return {"query":query,"hits":len(candidates),"unique_creators":len(best),"added_to_monitoring":added,"found_at":found_at,"results":result}
+
+    def discover_expanded(self, base_query: str, queries: list[str] | None = None, *, max_results: int = 50,
+                          region: str | None = None, language: str | None = None, search_source: str = "web",
+                          target_country: str | None = None, target_group: str | None = None,
+                          lookback_days: int | None = None, from_date: str | None = None,
+                          to_date: str | None = None, max_queries: int = 80) -> dict[str, Any]:
+        """Run the base query plus Query Expansion variants and merge creators deterministically.
+
+        Every executed query is persisted independently in discovery_hits, preserving the exact
+        search phrase that found the video. The returned creator pool is de-duplicated by channel
+        and keeps the highest-scoring hit while recording how many queries matched the creator.
+        """
+        base=(base_query or "").strip()
+        if not base:
+            raise ValueError("搜索关键词不能为空")
+        raw=[base]+list(queries or [])
+        normalized=[]; seen=set()
+        for q in raw:
+            q=" ".join(str(q or "").split()).strip()
+            k=q.casefold()
+            if not q or k in seen:
+                continue
+            seen.add(k); normalized.append(q)
+            if len(normalized) >= max(1, int(max_queries)):
+                break
+        merged: dict[str, dict[str, Any]] = {}
+        total_hits=0; executed=[]; errors=[]; found_at=now_utc()
+        for q in normalized:
+            try:
+                r=self.discover(q,max_results=max_results,region=region,language=language,add=False,
+                    search_source=search_source,target_country=target_country,target_group=target_group,
+                    lookback_days=lookback_days,from_date=from_date,to_date=to_date)
+            except Exception as e:
+                errors.append({"query":q,"error":f"{type(e).__name__}: {e}"})
+                # Quota/budget errors make later API queries unlikely to succeed; return the partial pool.
+                if "quota" in str(e).lower() or "budget" in str(e).lower():
+                    break
+                continue
+            executed.append(q); total_hits += int(r.get("hits") or 0)
+            for c0 in r.get("results") or []:
+                c=dict(c0); cid=c.get("channel_id") or c.get("channel_title") or c.get("video_id")
+                if not cid:
+                    continue
+                old=merged.get(cid)
+                matched=list((old or {}).get("matched_queries") or [])
+                if q not in matched:
+                    matched.append(q)
+                if old is None or float(c.get("pre_score") or 0) > float(old.get("pre_score") or 0):
+                    c["matched_queries"]=matched; c["query_coverage"]=len(matched); merged[cid]=c
+                else:
+                    old["matched_queries"]=matched; old["query_coverage"]=len(matched)
+        result=sorted(merged.values(), key=lambda x:(float(x.get("pre_score") or 0),int(x.get("query_coverage") or 0)), reverse=True)
+        return {"query":base,"queries_requested":normalized,"queries_executed":executed,"query_count":len(executed),
+                "hits":total_hits,"unique_creators":len(merged),"added_to_monitoring":0,"found_at":found_at,
+                "errors":errors,"results":result}
 
     def capture_window(self, ref: str, *, days: int | None = None, from_date: str | None = None, to_date: str | None = None, full_history: bool = False,
                        priority: str = "normal") -> dict[str, Any]:
@@ -582,21 +637,41 @@ class CreatorHub:
                 ids.append(r["video_id"])
         return self.hydrate_videos(ids)
 
-    def sync_all(self, *, mode: str = "incremental", priority: str | None = None, metric_days: int | None = None, all_videos: bool = False, limit: int | None = None) -> dict[str, Any]:
-        started = now_utc()
+    def _sync_due_hours(self, priority: str, mode: str) -> float:
+        policy=(self.settings.get("refresh_policy") or {}).get(priority or "normal", {})
+        new_h=float(policy.get("new_video_hours") or 24)
+        metric_h=float(policy.get("metric_hours") or new_h)
+        if mode in {"metrics-only","metrics"}:
+            return metric_h
+        if mode in {"channel-only","channel","full-history"}:
+            return new_h
+        return min(new_h,metric_h)
+
+    def sync_all(self, *, mode: str = "incremental", priority: str | None = None, metric_days: int | None = None, all_videos: bool = False, limit: int | None = None, force: bool = False) -> dict[str, Any]:
+        started = now_utc(); now_dt=parse_iso(started)
         with connect(self.db_path) as conn:
-            run_id = conn.execute("INSERT INTO sync_runs(mode,target,started_at,status) VALUES(?,?,?,?)", (mode, priority or "all_monitored", started, "running")).lastrowid
-            sql = "SELECT channel_id FROM creators WHERE monitoring_enabled=1"
+            run_id = conn.execute("INSERT INTO sync_runs(mode,target,started_at,status) VALUES(?,?,?,?)", (mode, (priority or "all_monitored")+("_force" if force else "_due"), started, "running")).lastrowid
+            sql = "SELECT channel_id,priority,last_synced_at FROM creators WHERE monitoring_enabled=1"
             params: list[Any] = []
             if priority:
                 sql += " AND priority=?"
                 params.append(priority)
             sql += " ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 3 END, COALESCE(last_synced_at,'') ASC"
-            if limit:
-                sql += " LIMIT ?"
-                params.append(limit)
-            channels = [r[0] for r in conn.execute(sql, tuple(params)).fetchall()]
+            candidates=[dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
             conn.commit()
+        due=[]; skipped_not_due=0
+        for row in candidates:
+            if force or not row.get("last_synced_at"):
+                due.append(row); continue
+            last=parse_iso(row.get("last_synced_at"))
+            hours=self._sync_due_hours(row.get("priority") or "normal",mode)
+            if not last or not now_dt or (now_dt-last).total_seconds() >= hours*3600:
+                due.append(row)
+            else:
+                skipped_not_due += 1
+        if limit is not None:
+            due=due[:max(0,int(limit))]
+        channels=[r["channel_id"] for r in due]
         creators_done = 0
         videos_done = 0
         errors: list[str] = []
@@ -617,11 +692,13 @@ class CreatorHub:
             status = "failed"
             errors.append(str(e))
         units = self.api.usage.units if self._api else 0
+        note=f"due={len(channels)}; skipped_not_due={skipped_not_due}; force={force}"
+        message=(note+("\n"+"\n".join(errors) if errors else ""))[:10000]
         with connect(self.db_path) as conn:
             conn.execute("UPDATE sync_runs SET finished_at=?,status=?,creators_processed=?,videos_processed=?,quota_units=?,message=? WHERE id=?",
-                         (now_utc(), status, creators_done, videos_done, units, "\n".join(errors)[:10000], run_id))
+                         (now_utc(), status, creators_done, videos_done, units, message, run_id))
             conn.commit()
-        return {"run_id": run_id, "status": status, "creators_processed": creators_done, "videos_processed": videos_done, "quota_units": units, "errors": errors}
+        return {"run_id": run_id, "status": status, "creators_processed": creators_done, "videos_processed": videos_done, "quota_units": units, "errors": errors, "eligible_due": len(channels), "skipped_not_due": skipped_not_due, "force": force}
 
     # ---------- offline classification ----------
     def reclassify_videos(self, *, only_missing: bool = False, limit: int | None = None, batch_size: int = 2000) -> dict[str, Any]:
@@ -711,6 +788,13 @@ class CreatorHub:
                 if value=="system_only": return "(l.video_id IS NULL AND s.video_id IS NOT NULL AND COALESCE(s.suggested_role,'pending')<>'pending' AND COALESCE(s.confidence,'')<>'review')",[]
                 return "1=1",[]
             if field=="confidence": return "COALESCE(s.confidence,'low')=?",[value]
+            op=str(cond.get("op") or "gte").lower()
+            sql_op={"gte":">=","gt":">","lte":"<=","lt":"<","eq":"=","neq":"<>"}.get(op,">=")
+            if field=="views": return f"COALESCE(v.current_views,0) {sql_op} ?",[float(value)]
+            if field=="likes": return f"COALESCE(v.current_likes,0) {sql_op} ?",[float(value)]
+            if field=="comments": return f"COALESCE(v.current_comments,0) {sql_op} ?",[float(value)]
+            if field=="duration": return f"COALESCE(v.duration_seconds,0) {sql_op} ?",[float(value)]
+            if field=="published": return f"substr(COALESCE(v.published_at,''),1,10) {sql_op} ?",[value[:10]]
             return "1=1",[]
 
         conds=[c for c in (conditions or []) if c.get("field") and (c.get("value") not in (None,""))]
@@ -725,7 +809,7 @@ class CreatorHub:
             where.append(group)
 
         order_map={
-            "published":"v.published_at", "views":"v.current_views", "creator":"c.channel_title",
+            "published":"v.published_at", "views":"v.current_views", "likes":"v.current_likes", "comments":"v.current_comments", "duration":"v.duration_seconds", "creator":"c.channel_title",
             "title":"v.title", "role":"COALESCE(l.human_role,s.suggested_role,'pending')",
             "review_status":"CASE WHEN l.video_id IS NOT NULL THEN 2 WHEN COALESCE(s.suggested_role,'pending')='pending' OR s.confidence='review' THEN 1 ELSE 0 END"
         }
@@ -740,7 +824,7 @@ class CreatorHub:
                 {base_from}""").fetchone()
             total=conn.execute(f"SELECT COUNT(*) {base_from} WHERE {where_sql}",tuple(params)).fetchone()[0]
             pages=max(1,(int(total)+page_size-1)//page_size); page=min(page,pages); offset=(page-1)*page_size
-            rows=conn.execute(f"""SELECT v.video_id,v.title,v.channel_id,v.published_at,v.current_views,v.current_likes,v.current_comments,
+            rows=conn.execute(f"""SELECT v.video_id,v.title,v.channel_id,v.published_at,v.current_views,v.current_likes,v.current_comments,v.duration_seconds,
                 s.suggested_role,s.brands_json AS system_brands_json,s.confidence,s.evidence_json,s.rule_version,
                 l.human_role,l.brands_json AS human_brands_json,l.labeled_by,l.labeled_at,c.channel_title
                 {base_from} WHERE {where_sql} ORDER BY {order} {d}, v.video_id ASC LIMIT ? OFFSET ?""",tuple(params+[page_size,offset])).fetchall()
@@ -820,6 +904,13 @@ class CreatorHub:
                 return ("c.channel_id IS NOT NULL" if value=='library' else "c.channel_id IS NULL"),[]
             if field=='tier': return "COALESCE(d.opportunity_tier,'')=?",[value]
             if field=='country': return "COALESCE(NULLIF(c.country_resolved,''),NULLIF(d.country_resolved,''),NULLIF(c.country_api,''),'')=?",[value.upper()]
+            if field=='geo':
+                country=str(cond.get('country') or '').upper()
+                resolved="COALESCE(NULLIF(c.country_resolved,''),NULLIF(d.country_resolved,''),NULLIF(c.country_api,''),'')"
+                if country:return f"{resolved}=?",[country]
+                codes=sorted(group_codes(value))
+                if not codes:return "0=1",[]
+                return f"{resolved} IN ({','.join('?' for _ in codes)})",codes
             return "1=1",[]
         conds=[c for c in (conditions or []) if c.get('field') and c.get('value')]
         if conds:
@@ -842,14 +933,15 @@ class CreatorHub:
         return {'rows':[dict(r) for r in rows],'total':int(total),'page':page,'page_size':page_size,'pages':pages}
 
     def evaluate_metric_spec(self, spec:dict[str,Any]) -> dict[str,Any]:
-        """Evaluate an exact-date objective metric (or ratio of two objective specs) from SQLite.
-        Used only for custom date ranges so the browser does not need all raw videos.
+        """Evaluate an exact-date VIDEO aggregation from SQLite.
+        The output is one numeric value per creator. Ratio support is retained only for legacy config migration.
         """
-        allowed_fields={'current_views','current_likes','current_comments','duration_seconds'}
+        allowed_fields={'video_count','current_views','current_likes','current_comments','duration_seconds'}
         allowed_aggs={'count','sum','avg','median','min','max'}
         def side(s:dict[str,Any])->dict[str,float|None]:
             field=str(s.get('source_field') or 'current_views');agg=str(s.get('aggregation') or 'count')
-            if field not in allowed_fields:raise ValueError('unsupported objective field')
+            if field not in allowed_fields:raise ValueError('unsupported video fact field')
+            if field=='video_count' and agg!='count':raise ValueError('video_count only supports count aggregation')
             if agg not in allowed_aggs:raise ValueError('unsupported aggregation')
             where=['1=1'];params=[]
             if s.get('from_date'):

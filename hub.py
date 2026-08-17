@@ -47,6 +47,7 @@ def main():
     p=sub.add_parser("discover",help="discover creators from YouTube video search"); common(p)
     p.add_argument("query"); p.add_argument("--max-results",type=int,default=100); p.add_argument("--region"); p.add_argument("--language"); p.add_argument("--add",action="store_true",help="add discovered creators to monitoring")
     p.add_argument("--search-source",choices=["web","api"],default="web"); p.add_argument("--target-country"); p.add_argument("--target-group"); p.add_argument("--lookback-days",type=int); p.add_argument("--from-date"); p.add_argument("--to-date")
+    p.add_argument("--expand-term",action="append",default=[],help="repeatable long-tail suffix; base query is always searched")
 
 
     p=sub.add_parser("capture",help="add a creator and capture videos from a selected time window"); common(p)
@@ -64,7 +65,7 @@ def main():
 
     p=sub.add_parser("sync",help="sync one creator or all monitored creators"); common(p)
     p.add_argument("ref",nargs="?"); p.add_argument("--mode",choices=["incremental","full-history","metrics-only","channel-only"],default="incremental")
-    p.add_argument("--priority",choices=["high","normal","low","archive"]); p.add_argument("--metric-days",type=int); p.add_argument("--all-videos",action="store_true"); p.add_argument("--limit",type=int)
+    p.add_argument("--priority",choices=["high","normal","low","archive"]); p.add_argument("--metric-days",type=int); p.add_argument("--all-videos",action="store_true"); p.add_argument("--limit",type=int); p.add_argument("--force",action="store_true",help="force all monitored creators, ignoring refresh cadence")
 
     p=sub.add_parser("label",help="confirm a human video label"); common(p)
     p.add_argument("video_id"); p.add_argument("role",choices=["ugphone","competitor","daily","multi_brand","other_cloud_phone","pending"]); p.add_argument("--brands",default=""); p.add_argument("--by",default="operator"); p.add_argument("--note",default="")
@@ -92,7 +93,14 @@ def main():
         key_env=load_settings(a.settings)["api"].get("api_key_env","YOUTUBE_API_KEY")
         dump({"python":sys.version.split()[0],"db":str(Path(a.db).resolve()),"db_exists":Path(a.db).exists(),"api_key_env":key_env,"api_key_present":bool(read_api_key(key_env)),"npm_required":False}); return
     hub=make_hub(a)
-    if a.cmd=="discover": dump(hub.discover(a.query,max_results=a.max_results,region=a.region,language=a.language,add=a.add,search_source=a.search_source,target_country=a.target_country,target_group=a.target_group,lookback_days=a.lookback_days,from_date=a.from_date,to_date=a.to_date))
+    if a.cmd=="discover":
+        qs=[f"{a.query} {t}" for t in (a.expand_term or []) if str(t).strip()]
+        res=hub.discover_expanded(a.query,queries=qs,max_results=a.max_results,region=a.region,language=a.language,search_source=a.search_source,target_country=a.target_country,target_group=a.target_group,lookback_days=a.lookback_days,from_date=a.from_date,to_date=a.to_date)
+        if a.add:
+            for c in res.get("results") or []:
+                try: hub.ensure_creator(c.get("channel_id") or "",monitoring=True,source="discovery_cli")
+                except Exception: pass
+        dump(res)
     elif a.cmd=="capture": dump(hub.capture_window(a.ref,days=a.days,from_date=a.from_date,to_date=a.to_date,full_history=a.full_history,priority=a.priority))
     elif a.cmd=="contact": dump(hub.scrape_contact(a.ref))
     elif a.cmd=="serve": serve_dashboard(hub,a.output,a.host,a.port,not a.no_browser)
@@ -104,7 +112,7 @@ def main():
     elif a.cmd=="monitor": dump({"channel_id":hub.set_monitoring(a.ref,a.state=="on",a.priority),"monitoring":a.state})
     elif a.cmd=="sync":
         if a.ref: dump(hub.sync_creator(a.ref,mode=a.mode,metric_days=a.metric_days,all_videos=a.all_videos,priority=a.priority))
-        else: dump(hub.sync_all(mode=a.mode,priority=a.priority,metric_days=a.metric_days,all_videos=a.all_videos,limit=a.limit))
+        else: dump(hub.sync_all(mode=a.mode,priority=a.priority,metric_days=a.metric_days,all_videos=a.all_videos,limit=a.limit,force=a.force))
     elif a.cmd=="label": dump(hub.label_video(a.video_id,a.role,brands=parse_csv_list(a.brands),actor=a.by,note=a.note))
     elif a.cmd=="unlabel": hub.clear_label(a.video_id,a.by); dump({"video_id":a.video_id,"human_label":None})
     elif a.cmd=="tag": dump({"channel_id":hub.tag_creator(a.ref,a.tag,a.by),"tag":a.tag})

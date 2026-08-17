@@ -23,6 +23,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         # Keep console concise; API errors are returned as JSON.
         return
 
+    def end_headers(self):
+        # Dashboard assets are regenerated during upgrades and server startup.
+        # Disable browser caching so HTML and JS from different versions cannot mix.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
     def _json(self, obj: Any, status: int = 200):
         data=json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8")
@@ -44,12 +52,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         path=urlparse(self.path).path; b=self._body()
         try:
             if path=="/api/discover":
-                return self._json(self.hub.discover(
-                    str(b.get("query") or "").strip(), max_results=int(b.get("max_results") or 100),
-                    region=(b.get("region") or None), language=(b.get("language") or None), add=False,
-                    search_source=str(b.get("search_source") or "web"), target_country=(b.get("target_country") or None),
-                    target_group=(b.get("target_group") or None), lookback_days=int(b["lookback_days"]) if b.get("lookback_days") else None,
+                queries=b.get("queries") if isinstance(b.get("queries"),list) else []
+                return self._json(self.hub.discover_expanded(
+                    str(b.get("query") or "").strip(), queries=[str(x) for x in queries],
+                    max_results=int(b.get("max_results") or 50), region=(b.get("region") or None),
+                    language=(b.get("language") or None), search_source=str(b.get("search_source") or "web"),
+                    target_country=(b.get("target_country") or None), target_group=(b.get("target_group") or None),
+                    lookback_days=int(b["lookback_days"]) if b.get("lookback_days") else None,
                     from_date=(b.get("from_date") or None), to_date=(b.get("to_date") or None),
+                    max_queries=int(b.get("max_queries") or 80),
                 ))
             if path=="/api/add":
                 row=self.hub.ensure_creator(str(b.get("channel_id") or b.get("ref") or ""), monitoring=True,

@@ -1,5 +1,78 @@
 # Changelog
 
+## v1.2.1
+- Fix Secondary Metrics sorting for constructed and ratio metrics (`findMetric` reference error).
+- Harden Overview and Video Classification filter apply actions and show applied-filter feedback.
+- Clean the generated Dashboard directory before rebuild during upgrade to prevent mixed-version assets.
+- Disable HTTP caching in interactive Dashboard mode so regenerated JS/HTML is always loaded together.
+
+## v1.2.0
+
+- 修复【二次指标 → 应用结果 · 博主库】固定播放指标错误调用不存在的 `side()`，改为使用 `videoSpecValue()`，恢复 Creator 结果表渲染。
+- 新增博主标签【疑似不再合作】：仅在历史存在 UgPhone 视频、当前 `monitoring_enabled=1`、最近同步数据仍处于优先级刷新周期 + 6 小时调度宽限内、且最近 UgPhone 视频已超过 30 天时触发。
+- 【疑似不再合作】使用橙色背景，并与【合作过博主】历史身份并存；数据过期或未监控时不自动推断。
+- 新标签进入总览、二次指标规则/筛选和博主发现身份筛选。
+- 增加监控新鲜度与疑似停合作状态的回归检查。
+
+## v1.1.0
+
+- 身份标签视觉分层：UgPhone 合作绿色、未合作蓝色、LDCloud/RedFinger/VSPhone 竞品合作红色。
+- 二次指标应用结果不再平铺全部可见指标；身份标签后固定展示 UgPhone / 全部 / 竞品视频播放量中位数，仅额外展示当前排序指标，并以深蓝表头突出当前排序列。
+- 博主发现 A/B/C/D 分档分别使用绿/蓝/黄/红背景。
+- 视频分类筛选新增播放量、点赞数、评论数、视频时长和发布时间，并支持数值/日期比较与 AND / OR / NOT。
+- 所有表格表头统一水平、垂直居中。
+- 监控优先级真正参与批量同步调度：高 6h、普通 24h、低 72h、归档 168h；未到期对象自动跳过，`sync --force` 可强制刷新。
+- Windows 定时任务改为每 6 小时运行一次，让高优先级 6 小时周期可以实际生效。
+- 数据状态文案明确为“XX优先级 / 监控中（或未监控）/ 计划周期 / 最近同步”。
+
+## v1.0.0
+
+- 重构二次指标数据模型，严格区分博主客观数据、博主标签与视频客观数据。
+- 指标构建器只对视频客观数据执行 Count / Sum / Average / Median / Max / Min，并输出博主级构建指标。
+- 博主客观数据与博主标签不再进入聚合器；博主标签使用“存在 / 不存在”判断。
+- 比值指标改为引用博主客观数据或已构建指标，取消在比值内部直接定义两套视频聚合的错误结构。
+- 规则与筛选统一使用博主客观数据、博主标签、构建指标、比值指标四类 Creator 级对象。
+- 浏览器工作区升级到 `cdh-secondary-metrics-v6`，并提供 v0.x 配置迁移。
+- 默认安装级二次指标配置升级为 `data/secondary_metrics_v4.json`，读取时兼容旧 `secondary_metrics_v3.json`。
+- 版本升级至 v1.0.0。
+
+## v0.9.3
+
+- 修复【视频分类】首次载入时静态预览行未立即应用每页 30 条限制的问题。
+- 页面 JavaScript 初始化后立即执行第一页分页，再检测交互服务并请求 SQLite 数据。
+- 修复“顶部显示 1-30，但未操作底部分页前仍能看到大量视频”的显示错位。
+- 版本升级至 v0.9.3。
+
+## v0.9.2
+
+- 所有 Creator 级国家/地区筛选统一改为“先选区域，再选该区域内国家/地区”的级联逻辑。
+- 【博主发现】本次结果与已保存发现记录：国家筛选不再直接列出 249 个国家，而是先选东亚/东南亚/南亚/中亚/中东/欧洲/非洲/北美/拉美/巴西/大洋洲，再可选具体国家。
+- 【总览 · 博主库】新增地理位置筛选类型，同样采用区域 → 国家/地区两级选择。
+- 【二次指标 · 应用结果】新增地理位置筛选维度，同样采用区域 → 国家/地区两级选择；规则构建器仍保持四类指标体系不变。
+- 搜索新博主本身的区域/国家选择继续保持级联，并支持中文国家名或 ISO 两字母代码直接锁定国家。
+- 版本升级至 v0.9.2。
+
+## v0.9.1
+
+- Query Expansion 的每个长尾词新增独立勾选框：勾选表示本次搜索使用，取消勾选表示保留词条但本次不使用。
+- 每个长尾词继续保留 × 删除按钮；删除后从当前语言对应 Query Pack 中移除。
+- 新增词默认处于勾选状态；“恢复当前语言默认词”会恢复默认词并全部勾选。
+- Query Pack 总开关继续控制整组是否参与搜索；实际执行条件为“Pack 已启用 AND 词条已勾选”。
+- 旧 v0.9.0 浏览器词库状态会自动迁移，既有词条默认视为已勾选。
+- 版本升级至 v0.9.1。
+
+## v0.9.0
+
+- 博主发现新增 Query Expansion：原关键词始终搜索一次，启用 Query Pack 后逐项执行“原关键词 + 长尾词”。
+- 内置 6 个 Query Pack：Core、Farming / 成长收益、AFK / 云手机适配、Active Creator、Commercial / 评测比较、自定义。
+- Query Pack 支持逐包启停、当前语言长尾词新增/删除与恢复默认；用户编辑状态保存在浏览器本地。
+- 默认 English，并内置拉美西语、巴西葡语、泰语、越南语、印尼语、韩语、日语、繁体中文（台湾）。
+- 新增 Query 预览、Query 数量与 API `search.list` quota 估算。
+- 网页搜索实现 continuation token 深度加载；API 搜索继续使用 `nextPageToken`。
+- 多 Query 搜索统一按 Creator 去重，同一 Creator 保留最高发现评分并记录 Query Coverage。
+- 每个实际执行 Query 独立写入 `discovery_hits`，保持发现来源可追溯。
+- CLI `discover` 新增可重复的 `--expand-term` 参数。
+
 ## v0.8.0
 
 - 修正【视频分类】页面的数据范围：默认展示全部本地视频，不再默认限定为待人工复核队列。

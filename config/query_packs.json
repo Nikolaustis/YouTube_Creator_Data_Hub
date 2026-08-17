@@ -1,0 +1,481 @@
+{
+  "schema_version": 1,
+  "default_language": "en",
+  "max_queries_per_search": 80,
+  "languages": {
+    "en": {
+      "name": "English",
+      "search_language": "en"
+    },
+    "es-419": {
+      "name": "Español (Latinoamérica)",
+      "search_language": "es"
+    },
+    "pt-BR": {
+      "name": "Português (Brasil)",
+      "search_language": "pt"
+    },
+    "th": {
+      "name": "ไทย",
+      "search_language": "th"
+    },
+    "vi": {
+      "name": "Tiếng Việt",
+      "search_language": "vi"
+    },
+    "id": {
+      "name": "Bahasa Indonesia",
+      "search_language": "id"
+    },
+    "ko": {
+      "name": "한국어",
+      "search_language": "ko"
+    },
+    "ja": {
+      "name": "日本語",
+      "search_language": "ja"
+    },
+    "zh-TW": {
+      "name": "繁體中文（台灣）",
+      "search_language": "zh"
+    }
+  },
+  "packs": [
+    {
+      "id": "core",
+      "name_zh": "Core / 核心发现",
+      "description_zh": "通用玩法、攻略与教程，用于扩大真实游戏 Creator 覆盖。",
+      "default_enabled": true,
+      "terms": {
+        "en": [
+          "gameplay",
+          "guide",
+          "tutorial",
+          "how to"
+        ],
+        "es-419": [
+          "gameplay",
+          "guía",
+          "tutorial",
+          "cómo jugar"
+        ],
+        "pt-BR": [
+          "gameplay",
+          "guia",
+          "tutorial",
+          "como jogar"
+        ],
+        "th": [
+          "เกมเพลย์",
+          "คู่มือ",
+          "วิธีเล่น",
+          "สอนเล่น"
+        ],
+        "vi": [
+          "gameplay",
+          "hướng dẫn",
+          "cách chơi",
+          "tutorial"
+        ],
+        "id": [
+          "gameplay",
+          "panduan",
+          "tutorial",
+          "cara main"
+        ],
+        "ko": [
+          "게임플레이",
+          "공략",
+          "가이드",
+          "하는 법"
+        ],
+        "ja": [
+          "ゲームプレイ",
+          "攻略",
+          "ガイド",
+          "やり方"
+        ],
+        "zh-TW": [
+          "遊戲玩法",
+          "攻略",
+          "教學",
+          "怎麼玩"
+        ]
+      }
+    },
+    {
+      "id": "farming",
+      "name_zh": "Farming / 成长收益",
+      "description_zh": "围绕刷资源、成长效率、自动刷图与快速升级。",
+      "default_enabled": false,
+      "terms": {
+        "en": [
+          "farm",
+          "farming guide",
+          "auto farm",
+          "auto grind",
+          "level up fast",
+          "fast progression",
+          "best farming method"
+        ],
+        "es-419": [
+          "farmear",
+          "guía de farmeo",
+          "farmeo automático",
+          "grind automático",
+          "subir de nivel rápido",
+          "progreso rápido",
+          "mejor método de farmeo"
+        ],
+        "pt-BR": [
+          "farmar",
+          "guia de farm",
+          "farm automático",
+          "grind automático",
+          "upar rápido",
+          "progressão rápida",
+          "melhor método de farm"
+        ],
+        "th": [
+          "ฟาร์ม",
+          "คู่มือฟาร์ม",
+          "ฟาร์มอัตโนมัติ",
+          "ออโต้ฟาร์ม",
+          "เก็บเลเวลเร็ว",
+          "พัฒนาเร็ว",
+          "วิธีฟาร์มที่ดีที่สุด"
+        ],
+        "vi": [
+          "farm",
+          "hướng dẫn farm",
+          "auto farm",
+          "cày tự động",
+          "lên cấp nhanh",
+          "tăng tiến nhanh",
+          "cách farm tốt nhất"
+        ],
+        "id": [
+          "farming",
+          "panduan farming",
+          "auto farm",
+          "auto grind",
+          "cepat naik level",
+          "progres cepat",
+          "cara farming terbaik"
+        ],
+        "ko": [
+          "파밍",
+          "파밍 공략",
+          "자동 파밍",
+          "자동 사냥",
+          "빠른 레벨업",
+          "빠른 성장",
+          "최고의 파밍 방법"
+        ],
+        "ja": [
+          "周回",
+          "周回方法",
+          "自動周回",
+          "オート周回",
+          "レベル上げ",
+          "高速育成",
+          "効率的な周回"
+        ],
+        "zh-TW": [
+          "刷資源",
+          "刷資源攻略",
+          "自動刷圖",
+          "自動掛機",
+          "快速升級",
+          "快速成長",
+          "最佳刷法"
+        ]
+      }
+    },
+    {
+      "id": "afk",
+      "name_zh": "AFK / 云手机适配",
+      "description_zh": "AFK、24/7、过夜、多账号等与云手机天然适配的内容意图。",
+      "default_enabled": false,
+      "terms": {
+        "en": [
+          "AFK",
+          "AFK farm",
+          "24/7",
+          "overnight",
+          "farm while sleeping",
+          "auto play",
+          "multi account",
+          "multiple accounts"
+        ],
+        "es-419": [
+          "AFK",
+          "farm AFK",
+          "24/7",
+          "toda la noche",
+          "farmear mientras duermes",
+          "juego automático",
+          "múltiples cuentas",
+          "multicuentas"
+        ],
+        "pt-BR": [
+          "AFK",
+          "farm AFK",
+          "24/7",
+          "durante a noite",
+          "farmar dormindo",
+          "jogo automático",
+          "múltiplas contas",
+          "multi contas"
+        ],
+        "th": [
+          "AFK",
+          "ฟาร์ม AFK",
+          "24/7",
+          "ข้ามคืน",
+          "ฟาร์มตอนนอน",
+          "เล่นอัตโนมัติ",
+          "หลายบัญชี",
+          "เปิดหลายไอดี"
+        ],
+        "vi": [
+          "AFK",
+          "farm AFK",
+          "24/7",
+          "qua đêm",
+          "farm khi ngủ",
+          "tự động chơi",
+          "nhiều tài khoản",
+          "đa tài khoản"
+        ],
+        "id": [
+          "AFK",
+          "AFK farm",
+          "24/7",
+          "semalaman",
+          "farming sambil tidur",
+          "auto play",
+          "banyak akun",
+          "multi akun"
+        ],
+        "ko": [
+          "AFK",
+          "AFK 파밍",
+          "24/7",
+          "밤새",
+          "자는 동안 파밍",
+          "자동 플레이",
+          "다계정",
+          "여러 계정"
+        ],
+        "ja": [
+          "AFK",
+          "放置周回",
+          "24/7",
+          "一晩中",
+          "寝ている間に周回",
+          "オートプレイ",
+          "複数アカウント",
+          "多アカウント"
+        ],
+        "zh-TW": [
+          "AFK",
+          "掛機刷資源",
+          "24/7",
+          "過夜掛機",
+          "睡覺刷資源",
+          "自動遊玩",
+          "多帳號",
+          "多開"
+        ]
+      }
+    },
+    {
+      "id": "active",
+      "name_zh": "Active Creator / 活跃创作者",
+      "description_zh": "更新、活动、兑换码、排行与技巧，优先发现持续追游戏内容的 Creator。",
+      "default_enabled": false,
+      "terms": {
+        "en": [
+          "update",
+          "new update",
+          "event",
+          "codes",
+          "tier list",
+          "tips",
+          "tips and tricks",
+          "strategy",
+          "F2P"
+        ],
+        "es-419": [
+          "actualización",
+          "nueva actualización",
+          "evento",
+          "códigos",
+          "tier list",
+          "consejos",
+          "trucos",
+          "estrategia",
+          "F2P"
+        ],
+        "pt-BR": [
+          "atualização",
+          "nova atualização",
+          "evento",
+          "códigos",
+          "tier list",
+          "dicas",
+          "dicas e truques",
+          "estratégia",
+          "F2P"
+        ],
+        "th": [
+          "อัปเดต",
+          "อัปเดตใหม่",
+          "อีเวนต์",
+          "โค้ด",
+          "tier list",
+          "เทคนิค",
+          "ทิป",
+          "กลยุทธ์",
+          "F2P"
+        ],
+        "vi": [
+          "cập nhật",
+          "bản cập nhật mới",
+          "sự kiện",
+          "code",
+          "tier list",
+          "mẹo",
+          "mẹo và thủ thuật",
+          "chiến thuật",
+          "F2P"
+        ],
+        "id": [
+          "update",
+          "update terbaru",
+          "event",
+          "kode",
+          "tier list",
+          "tips",
+          "tips dan trik",
+          "strategi",
+          "F2P"
+        ],
+        "ko": [
+          "업데이트",
+          "신규 업데이트",
+          "이벤트",
+          "쿠폰",
+          "티어리스트",
+          "팁",
+          "팁과 노하우",
+          "전략",
+          "무과금"
+        ],
+        "ja": [
+          "アップデート",
+          "最新アップデート",
+          "イベント",
+          "コード",
+          "ティアリスト",
+          "コツ",
+          "攻略情報",
+          "戦略",
+          "無課金"
+        ],
+        "zh-TW": [
+          "更新",
+          "最新更新",
+          "活動",
+          "兌換碼",
+          "強度排行",
+          "技巧",
+          "攻略技巧",
+          "策略",
+          "無課"
+        ]
+      }
+    },
+    {
+      "id": "commercial",
+      "name_zh": "Commercial / 评测比较",
+      "description_zh": "评测、比较与值不值得，默认低优先级补充发现。",
+      "default_enabled": false,
+      "terms": {
+        "en": [
+          "review",
+          "comparison",
+          "worth it",
+          "best way to play"
+        ],
+        "es-419": [
+          "reseña",
+          "comparación",
+          "vale la pena",
+          "mejor forma de jugar"
+        ],
+        "pt-BR": [
+          "review",
+          "comparação",
+          "vale a pena",
+          "melhor forma de jogar"
+        ],
+        "th": [
+          "รีวิว",
+          "เปรียบเทียบ",
+          "คุ้มไหม",
+          "วิธีเล่นที่ดีที่สุด"
+        ],
+        "vi": [
+          "đánh giá",
+          "so sánh",
+          "có đáng không",
+          "cách chơi tốt nhất"
+        ],
+        "id": [
+          "review",
+          "perbandingan",
+          "worth it",
+          "cara terbaik bermain"
+        ],
+        "ko": [
+          "리뷰",
+          "비교",
+          "할만한가",
+          "최고의 플레이 방법"
+        ],
+        "ja": [
+          "レビュー",
+          "比較",
+          "やる価値",
+          "おすすめの遊び方"
+        ],
+        "zh-TW": [
+          "評測",
+          "比較",
+          "值不值得",
+          "最佳玩法"
+        ]
+      }
+    },
+    {
+      "id": "custom",
+      "name_zh": "Custom / 自定义",
+      "description_zh": "使用者自行添加长尾词；每种语言分别保存。",
+      "default_enabled": false,
+      "custom": true,
+      "terms": {
+        "en": [],
+        "es-419": [],
+        "pt-BR": [],
+        "th": [],
+        "vi": [],
+        "id": [],
+        "ko": [],
+        "ja": [],
+        "zh-TW": []
+      }
+    }
+  ]
+}

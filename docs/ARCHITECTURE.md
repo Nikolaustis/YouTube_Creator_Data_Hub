@@ -21,7 +21,7 @@ Python Dashboard Builder
 1. 不运行 Node/npm/Next.js/localhost 服务。
 2. Dashboard 是可删除、可重建的缓存，不是数据库。
 3. 视频分类由 Skill 自动运行；人工分类表仅用于修正错误。
-4. 二次指标属于分析层，不回写事实表。
+4. 二次指标属于分析层，不回写事实表；Creator 粒度事实/标签与 Video 粒度事实必须分离，Video 数据只有聚合后才能成为 Creator 构建指标。
 5. 大数据量下禁止浏览器加载全量原始视频做聚合。
 6. 博主详情页 Snapshot 按博主批量读取，避免逐视频查询。
 

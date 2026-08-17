@@ -15,6 +15,8 @@ from creator_hub.exporter import export_all
 from creator_hub.geography import geography, group_codes, resolve_country_query
 from creator_hub.importers import import_v2
 from creator_hub.metric_config import import_metric_config, load_metric_config
+from creator_hub.monitoring import monitoring_data_fresh, suspected_inactive_partner
+from creator_hub.util import parse_iso
 from creator_hub.service import CreatorHub
 
 
@@ -41,6 +43,13 @@ def main():
     assert resolve_country_query("菲律宾")["code"] == "PH"
     assert resolve_country_query("PH")["name_zh"] == "菲律宾"
     assert "PH" in group_codes("southeast_asia")
+
+    qp = json.loads((ROOT / "config" / "query_packs.json").read_text(encoding="utf-8"))
+    assert qp["default_language"] == "en"
+    assert set(qp["languages"]) >= {"en", "es-419", "pt-BR", "th", "vi", "id", "ko", "ja", "zh-TW"}
+    assert [p["id"] for p in qp["packs"]] == ["core", "farming", "afk", "active", "commercial", "custom"]
+    assert "AFK" in next(p for p in qp["packs"] if p["id"] == "afk")["terms"]["en"]
+    assert "掛機刷資源" in next(p for p in qp["packs"] if p["id"] == "afk")["terms"]["zh-TW"]
 
     tmp = Path(tempfile.mkdtemp(prefix="creator_hub_selfcheck_"))
     try:
@@ -115,6 +124,12 @@ def main():
         assert cl_all["total"] == 2 and cl_all["all_total"] == 2 and cl_all["pending_total"] == 1
         cl_pending = hub.classification_list(page=1, page_size=30, conditions=[{"field": "review_status", "value": "pending_review"}])
         assert cl_pending["total"] == 1 and cl_pending["rows"][0]["video_id"] == vid2
+        # Video objective filters are server-side and support comparisons / boolean chains.
+        assert hub.classification_list(conditions=[{"field":"views","op":"gte","value":"1000"}])["total"] == 1
+        assert hub.classification_list(conditions=[{"field":"likes","op":"gt","value":"50"}])["total"] == 1
+        assert hub.classification_list(conditions=[{"field":"duration","op":"lte","value":"60"}])["total"] == 1
+        assert hub.classification_list(conditions=[{"field":"published","op":"gte","value":"2026-08-01"}])["total"] == 1
+        assert hub.classification_list(conditions=[{"field":"views","op":"gte","value":"1000"},{"join":"OR","field":"duration","op":"lte","value":"60"}])["total"] == 2
         rq = hub.review_queue(page=1, page_size=30, conditions=[{"field": "role", "value": "daily"}])
         # Compatibility review_queue remains limited to unresolved review items.
         assert rq["page_size"] == 30 and rq["pages"] >= 1
@@ -124,6 +139,28 @@ def main():
         assert rr["before"] == 1 and rr["api_calls"] == 0
         hub.review_video(vid2, confirm_system=True, actor="self_check")
         assert hub.status()["classification_review"] == 0
+
+        # Monitoring status inference: only fresh monitored historical partners can be marked suspected inactive.
+        settings_for_status=hub.settings
+        fixed_now=parse_iso("2026-08-17T12:00:00Z")
+        assert monitoring_data_fresh(settings_for_status, priority="normal", last_synced_at="2026-08-16T12:00:00Z", now=fixed_now)
+        assert not monitoring_data_fresh(settings_for_status, priority="normal", last_synced_at="2026-08-15T00:00:00Z", now=fixed_now)
+        assert suspected_inactive_partner(settings_for_status, monitoring_enabled=1, priority="normal", last_synced_at="2026-08-16T12:00:00Z", ugphone_video_count=2, latest_ugphone_upload="2026-07-01T00:00:00Z", now=fixed_now)
+        assert not suspected_inactive_partner(settings_for_status, monitoring_enabled=0, priority="normal", last_synced_at="2026-08-16T12:00:00Z", ugphone_video_count=2, latest_ugphone_upload="2026-07-01T00:00:00Z", now=fixed_now)
+        assert not suspected_inactive_partner(settings_for_status, monitoring_enabled=1, priority="normal", last_synced_at="2026-08-15T00:00:00Z", ugphone_video_count=2, latest_ugphone_upload="2026-07-01T00:00:00Z", now=fixed_now)
+
+        # Monitoring cadence: recently synced normal-priority creators are skipped unless forced.
+        from creator_hub.util import now_utc
+        with sqlite3.connect(db) as conn:
+            conn.execute("UPDATE creators SET monitoring_enabled=1,priority='normal',last_synced_at=? WHERE channel_id=?",(now_utc(),cid));conn.commit()
+        calls=[]
+        original_sync_creator=hub.sync_creator
+        hub.sync_creator=lambda channel_id,**kwargs: (calls.append(channel_id) or {"videos_processed":0})
+        due_run=hub.sync_all(mode="incremental")
+        assert due_run["skipped_not_due"] == 1 and calls == []
+        force_run=hub.sync_all(mode="incremental",force=True)
+        assert force_run["force"] is True and calls == [cid]
+        hub.sync_creator=original_sync_creator
 
         # Exact-date metric evaluator works fully offline.
         metric = hub.evaluate_metric_spec({
@@ -151,6 +188,23 @@ def main():
             conn.commit()
         hist = hub.discovery_history(page=1, page_size=30, conditions=[{"field": "tier", "value": "A"}], sort="score", direction="desc")
         assert hist["total"] == 1 and hist["rows"][0]["pre_score"] == 88.0
+        hist_geo = hub.discovery_history(page=1, page_size=30, conditions=[{"field": "geo", "value": "southeast_asia", "country": ""}])
+        assert hist_geo["total"] == 1 and hist_geo["rows"][0]["country_resolved"] == "PH"
+        hist_country = hub.discovery_history(page=1, page_size=30, conditions=[{"field": "geo", "value": "southeast_asia", "country": "PH"}])
+        assert hist_country["total"] == 1
+        hist_wrong_geo = hub.discovery_history(page=1, page_size=30, conditions=[{"field": "geo", "value": "east_asia", "country": ""}])
+        assert hist_wrong_geo["total"] == 0
+
+        # Query Expansion merges multiple query routes by creator, keeping the best hit and coverage count.
+        original_discover = hub.discover
+        def fake_discover(q, **kwargs):
+            score = {"Demo Game": 60.0, "Demo Game AFK": 91.0, "Demo Game guide": 75.0}[q]
+            return {"hits": 2, "results": [{"channel_id": cid, "video_id": vid, "channel_title": "Demo Creator", "pre_score": score, "query": q}]}
+        hub.discover = fake_discover
+        expanded = hub.discover_expanded("Demo Game", ["Demo Game AFK", "Demo Game guide"], max_results=50)
+        hub.discover = original_discover
+        assert expanded["query_count"] == 3 and expanded["hits"] == 6 and expanded["unique_creators"] == 1
+        assert expanded["results"][0]["pre_score"] == 91.0 and expanded["results"][0]["query_coverage"] == 3
 
         dash = build_dashboard(db, tmp / "dashboard", hub.settings)
         assert Path(dash["index"]).exists()
@@ -158,7 +212,7 @@ def main():
         assert (tmp / "dashboard" / "metrics.html").exists()
         for asset in [
             "creator_facts.js", "metric_base.js", "metrics_workspace.js", "metrics_config.js",
-            "overview_filters.js", "discovery.js", "table_tools.js", "creator_detail.js", "review.js", "geography.js",
+            "overview_filters.js", "discovery.js", "table_tools.js", "creator_detail.js", "review.js", "geography.js", "query_packs.js",
         ]:
             assert (tmp / "dashboard" / "assets" / asset).exists(), asset
         assert not (tmp / "dashboard" / "assets" / "metrics_data.js").exists()
@@ -166,8 +220,15 @@ def main():
         mh = (tmp / "dashboard" / "metrics.html").read_text(encoding="utf-8")
         assert "指标构建器" in mh and "规则 / 标签构建器" in mh and "应用结果" in mh
         assert 'id="metricOutputType"' in mh and 'value="constructed"' in mh and 'value="ratio"' in mh
-        assert 'id="metricInputType"' in mh and 'value="objective"' in mh and 'value="aggregate_label"' in mh
-        assert 'value="constructed"' not in mh.split('id="metricInputType"', 1)[1].split('</select>', 1)[0]
+        assert 'id="metricInputType"' not in mh
+        assert "博主客观数据" in mh and "博主标签" in mh and "视频客观数据" in mh
+        metrics_js=(tmp / "dashboard" / "assets" / "metrics_workspace.js").read_text(encoding="utf-8")
+        assert "function fixedPlaybackValue" in metrics_js and "return videoSpecValue(c," in metrics_js
+        assert "return side(c," not in metrics_js
+        assert "return metricById(sortKey.slice(7))" in metrics_js
+        assert "return findMetric(sortKey.slice(7))" not in metrics_js
+        assert "suspected_inactive_partner" in metrics_js and "疑似不再合作" in metrics_js
+        assert "视频数据只有经过聚合后才成为博主级构建指标" in mh
         assert 'id="ruleRelation"' not in mh
         assert 'id="ruleConditions"' in mh and 'id="resultFilterConditions"' in mh
         assert "已构建指标" in mh
@@ -175,11 +236,17 @@ def main():
 
         index = (tmp / "dashboard" / "index.html").read_text(encoding="utf-8")
         assert "UgPhone视频数" in index and "博主库" in index and 'id="ovFilterConditions"' in index
+        assert "identity-partnered" in index and "identity-unpartnered" in index and "identity-competitor" in index
+        assert "identity-suspected" in index and "疑似不再合作" in index
+        assert "优先级" in index and "监控中" in index and "计划周期" in index
         assert 'value="ugphone_video_count" selected' in index and '<option value="desc" selected>降序</option>' in index
         assert "查看本地详情" not in index and "查看详情" in index
         assert "竞品博主" not in index and "LDCloud合作博主" in index
         assert 'value="30"' in index and "ovPageSizeConfirm" in index and "ovFirst" in index and "ovLast" in index and "ovJump" in index
         assert "视频指标快照" not in index and "待复核分类" not in index
+        assert 'id="ovFilterStatus"' in index
+        overview_js=(tmp / "dashboard" / "assets" / "overview_filters.js").read_text(encoding="utf-8")
+        assert "已应用 ${active.length} 个筛选条件" in overview_js
 
         labels = (tmp / "dashboard" / "labels.html").read_text(encoding="utf-8")
         assert "离线重新识别全部待复核" in labels
@@ -190,6 +257,12 @@ def main():
         assert 'value="30"' in labels
         review_js=(tmp / "dashboard" / "assets" / "review.js").read_text(encoding="utf-8")
         assert "/api/videos/classifications" in review_js and "review_status" in review_js and "当前筛选条件下没有视频" in review_js
+        assert "renderStatic();fetch('/api/ping')" in review_js
+        assert "let page=1,size=30" in review_js
+        assert "播放量" in review_js and "点赞数" in review_js and "评论数" in review_js and "视频时长（秒）" in review_js and "发布时间" in review_js
+        assert "rf-op" in review_js and "numericFields" in review_js
+        assert "已对静态预览应用 ${activeConditions.length} 个筛选条件" in review_js
+        assert 'id="labelFilterStatus"' in labels
 
         disc = (tmp / "dashboard" / "discovery.html").read_text(encoding="utf-8")
         assert "近7天" in disc and "近14天" not in disc
@@ -202,6 +275,24 @@ def main():
         assert "<th>排名</th>" not in saved_section and "搜索排名" not in saved_section
         geo_js = (tmp / "dashboard" / "assets" / "geography.js").read_text(encoding="utf-8")
         assert "菲律宾" in geo_js and '"PH"' in geo_js and "东南亚" in geo_js
+        qp_js = (tmp / "dashboard" / "assets" / "query_packs.js").read_text(encoding="utf-8")
+        assert "CDH_QUERY_PACKS" in qp_js and "es-419" in qp_js and "pt-BR" in qp_js and "zh-TW" in qp_js
+        assert 'id="queryLanguage"' in disc and 'id="queryPackGrid"' in disc and 'id="queryPreview"' in disc
+        assert "Query Expansion" in disc and "每个 Query 视频上限" in disc
+        disc_js = (tmp / "dashboard" / "assets" / "discovery.js").read_text(encoding="utf-8")
+        assert "buildExpandedQueries" in disc_js and "queries" in disc_js and "query_coverage" in disc_js
+        assert "grade-a" in disc_js and "grade-b" in disc_js and "grade-c" in disc_js and "grade-d" in disc_js
+        assert "地区 / 国家" in disc_js and "全部该区域" in disc_js and "countriesInGroup" in disc_js
+        overview_js = (tmp / "dashboard" / "assets" / "overview_filters.js").read_text(encoding="utf-8")
+        assert "地理位置" in overview_js and "全部该区域" in overview_js
+        metrics_js = (tmp / "dashboard" / "assets" / "metrics_workspace.js").read_text(encoding="utf-8")
+        assert "地理位置" in metrics_js and "全部该区域" in metrics_js
+        assert "creator_fact" in metrics_js and "creator_label" in metrics_js and "video_fact" in metrics_js
+        assert "博主客观数据" in metrics_js and "博主标签" in metrics_js and "视频客观数据" in metrics_js
+        assert "ratioNumerator" in metrics_js and "numerator_ref" in metrics_js
+        assert "metricInputType" not in metrics_js
+        assert "UgPhone视频播放量" in metrics_js and "总视频播放量" in metrics_js and "竞品视频播放量" in metrics_js
+        assert "sort-active" in metrics_js and "identity-partnered" in metrics_js
 
         creator_html = (tmp / "dashboard" / "creators" / (cid + ".html")).read_text(encoding="utf-8")
         assert 'id="detailFilterConditions"' in creator_html and "detailAddFilter" in creator_html
@@ -221,23 +312,31 @@ def main():
 
         cfg_src = tmp / "metric_cfg.json"
         cfg_dst = tmp / "installed_metrics.json"
+        # Legacy v0.x config should migrate to the v1.0 grain model.
         cfg_src.write_text(json.dumps({
             "metrics": [
                 {"id": "m1", "name": "UgPhone Median", "type": "constructed", "source_kind": "objective", "source_field": "current_views", "window": "all", "aggregation": "median", "filter_label": "role:ugphone"},
+                {"id": "bad_label_metric", "name": "Bad Label Average", "type": "constructed", "source_kind": "aggregate_label", "source_field": "partnered_ugphone", "aggregation": "avg"},
                 {"id": "m2", "name": "Ratio", "type": "ratio", "numerator_spec": {"source_field": "current_views", "aggregation": "sum", "window": "all"}, "denominator_spec": {"source_field": "current_views", "aggregation": "count", "window": "all"}},
             ],
             "rules": [{"id": "r1", "name": "Rule", "conditions": [
                 {"metric_type": "objective", "metric_key": "subscriber_count", "op": "gte", "value": "1000"},
                 {"join": "AND", "metric_type": "constructed", "metric_key": "m1", "op": "gt", "value": "0"},
-                {"join": "NOT", "metric_type": "aggregate_label", "metric_key": "unpartnered_creator", "op": "truthy", "value": ""},
+                {"join": "AND", "metric_type": "constructed", "metric_key": "bad_label_metric", "op": "gt", "value": "0"},
+                {"join": "NOT", "metric_type": "aggregate_label", "metric_key": "unpartnered_ugphone", "op": "truthy", "value": ""},
             ]}],
             "filters": [{"metric_type": "aggregate_label", "metric_key": "partnered_ugphone", "op": "truthy", "value": ""}],
         }), encoding="utf-8")
         cfg_result = import_metric_config(cfg_src, cfg_dst)
         loaded = load_metric_config(cfg_dst)
-        assert cfg_result["metrics"] == 2
-        assert loaded["metrics"][1]["type"] == "ratio"
-        assert loaded["rules"][0]["conditions"][2]["join"] == "NOT"
+        assert cfg_result["metrics"] == 2  # m1 + ratio; hidden ratio components are not counted publicly
+        assert any(m["id"] == "m1" and m["source_kind"] == "video_fact" for m in loaded["metrics"])
+        ratio_metric = next(m for m in loaded["metrics"] if m["id"] == "m2")
+        assert ratio_metric["type"] == "ratio" and ratio_metric["numerator_ref"]["kind"] == "constructed"
+        assert all(m.get("source_kind") != "aggregate_label" for m in loaded["metrics"])
+        assert loaded["rules"][0]["conditions"][0]["metric_type"] == "creator_fact"
+        assert any(c["metric_type"] == "creator_label" and c["metric_key"] == "partnered_ugphone" for c in loaded["rules"][0]["conditions"])
+        assert loaded["filters"][0]["metric_type"] == "creator_label"
 
         with sqlite3.connect(db) as conn:
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

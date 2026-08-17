@@ -1,10 +1,18 @@
 ---
 name: youtube-creator-data-hub
 description: 本地 Python YouTube creator discovery and monitoring with related-video-to-creator video-to-creator web search, SQLite fact storage, objective channel/video metrics, snapshots, deterministic UgPhone/competitor classification, automatic creator relationship labels, country evidence, public contact scraping, discovery pre-scoring, configurable time-window capture, Chinese Dashboard, and user-defined secondary metrics. No Node/npm is required.
-version: 0.8.0
+version: 1.2.1
 ---
 
 # YouTube 博主数据中心
+
+## v1.2.1 交互筛选与二次指标排序修复
+
+- 修复构建指标/比值指标排序分支的前端引用错误。
+- 总览与视频分类筛选增加明确的“已应用条件 / 命中数量”反馈。
+- 升级时清理旧 Dashboard 输出并重建；交互 HTTP 服务禁用静态资产缓存，避免混用旧 JS。
+- 保留【疑似不再合作】标签及其“历史合作 + 监控中 + 数据新鲜 + 30 天无 UgPhone 新视频”的保守判定。
+
 
 本 Skill 的唯一事实源是 `data/creator_hub.sqlite`。
 
@@ -13,7 +21,7 @@ version: 0.8.0
 - “搜索到的候选”与“正式博主库”必须分离。
 - `discover` 结果先保存到 `discovery_hits`；只有用户明确加入或抓取视频后才进入 `creators` 主库。
 - UgPhone / 竞品 / 日常分类由系统识别逻辑产生；人工修正只用于纠错。
-- Creator 身份标签由本地视频分类自动聚合：存在 UgPhone 视频即“合作过博主”，否则“未合作博主”；存在竞品/具体竞品品牌视频则追加对应身份。
+- Creator 身份标签由本地视频分类自动聚合：存在 UgPhone 视频即“合作过博主”，否则“未合作博主”；存在竞品/具体竞品品牌视频则追加对应身份。历史上合作过、仍在监控、同步数据足够新鲜且连续 30 天没有新的 UgPhone 视频时，额外标记“疑似不再合作”；它是待核查状态，不覆盖历史合作事实。
 - 对未合作候选可显示 发现评分；不要把该评分表述为客观 YouTube 字段。
 
 ## 交互 Dashboard
@@ -50,6 +58,15 @@ python .\hub.py discover "关键词" --from-date 2026-08-01 --to-date 2026-08-13
 `相关视频 → 命中视频指标 → 发布 Creator → 频道指标 → 发现预评分 → 发现记录`
 
 不要因为发现候选就自动全历史抓取。
+
+
+## Query Expansion
+
+博主发现支持 6 个 Query Pack：Core、Farming / 成长收益、AFK / 云手机适配、Active Creator、Commercial / 评测比较、自定义。原关键词始终搜索一次，启用 Pack 后逐项执行 `原关键词 + 长尾词`，跨 Query 统一去重 Creator。
+
+默认语言为 English，并内置拉美西语、巴西葡语、泰语、越南语、印尼语、韩语、日语、繁体中文（台湾）。Dashboard 可逐 Pack 启停、对当前语言长尾词增删，并预览本次实际 Query 数量。
+
+网页搜索 v0.9.0 起尝试跟随 YouTube continuation token 深度加载；API 搜索继续使用 `nextPageToken`。每个实际 Query 都独立写入 `discovery_hits`，同一 Creator 的结果保留最高发现评分并记录 Query Coverage。详见 `docs/QUERY_EXPANSION.md`。
 
 ## 指定时间视频入库
 
@@ -92,22 +109,23 @@ A≥85，B≥70，C≥55，否则D。用于未合作候选参考。原 Final Sco
 
 ## 二次指标
 
-全局展示指标分为四类：
+二次指标必须严格区分数据粒度：
 
-- 客观数据：系统基础事实/确定性统计，可直接用于筛选和规则；
-- 聚合标签（0/1）：系统生成的博主身份标签，可直接按“存在/为真”筛选，不要求数字阈值；
-- 构建指标：指标构建器从【客观数据】或【聚合标签】输入，通过 Count / Sum / Average / Median / Max / Min 生成；
-- 比值指标：指标构建器的另一种输出，分子和分母都只能从【客观数据】定义聚合逻辑，然后计算比值。
+- **博主客观数据**：订阅数、频道累计播放量、本地视频数、各品牌视频数量等，每位 Creator 一个数值；直接用于规则/筛选/排序/比值，不允许再做 Average / Median / Sum。
+- **博主标签**：合作过博主、未合作博主、LDCloud/RedFinger/VSPhone合作博主等布尔身份；只允许“存在 / 不存在”判断，不允许数值聚合。
+- **视频客观数据**：播放量、点赞数、评论数、视频时长、视频条目；只作为指标构建器的数据源。
+- **构建指标**：视频客观数据经过视频分类/品牌/时间筛选，再通过 Count / Sum / Average / Median / Max / Min 聚合为每位 Creator 一个数值。
+- **比值指标**：只允许在博主级数值之间计算，分子/分母可选博主客观数据或已构建指标；不得在比值指标内部重新定义视频聚合逻辑。
 
-指标构建器严格使用：
+正确的数据流：
 
-`输入：客观数据 / 聚合标签 → 输出：构建指标 / 比值指标`
+`Video facts → per-Creator aggregation → constructed metric → optional ratio → Creator rule/filter/sort`
 
-若输出为比值指标，输入自动锁定为客观数据。涉及视频的指标支持全部、近7/30/60/90/180/365天和精确开始/结束日期；精确范围在交互模式下由 Python/SQLite 计算，禁止为此把全量原始视频送入浏览器。
+涉及视频的构建指标支持全部、近7/30/60/90/180/365天和精确开始/结束日期；精确范围在交互模式下由 Python/SQLite 计算，禁止为此把全量原始视频送进浏览器。
 
-规则 / 标签构建器可引用客观数据、聚合标签、构建指标、比值指标。第一条条件无连接词；从第二条开始，每条条件单独设置 AND / OR / NOT。总览、二次指标结果、博主详情、视频分类、博主发现结果/历史等具备筛选的页面也尽量沿用同一多条件逻辑。
+规则 / 标签构建器可引用博主客观数据、博主标签、构建指标、比值指标。第一条条件无连接词；从第二条开始，每条条件单独设置 AND / OR / NOT。总览、二次指标结果、博主详情、视频分类、博主发现结果/历史等具备筛选的页面也尽量沿用同一多条件逻辑。
 
-“某品牌视频数量”放入客观数据；“是否与某品牌合作”放入聚合标签。
+“某品牌视频数量”属于博主客观数据；“是否与某品牌合作”属于博主标签。
 
 ## Dashboard 文件名与详情页
 
@@ -141,3 +159,20 @@ Codex 也可运行 `python hub.py review-reclassify`。
 
 
 发现评分的公式和分档口径见 `docs/DISCOVERY_SCORING.md`。
+
+## v1.1.0 二次指标粒度重构
+
+- 禁止将博主标签作为视频聚合输入。
+- 指标构建器只接受视频客观数据并输出博主级构建指标。
+- 比值指标引用博主客观数据或构建指标。
+- 规则/筛选四类对象统一为博主客观数据、博主标签、构建指标、比值指标。
+
+## v0.9.3 视频分类首屏分页修复
+
+- 视频分类页面加载脚本后立即将静态预览压缩为第一页 30 条。
+- 交互 API 完成后再以 SQLite 返回的第一页 30 条替换预览，避免初始化期间出现超过 30 条可见记录。
+- 所有后续翻页、每页条数确认、筛选和排序逻辑保持不变。
+
+## v0.9.2 地理筛选
+
+Dashboard 中所有 Creator 级国家/地区筛选统一使用区域 → 国家/地区级联：先选业务区域，再可选该区域内具体国家；不要直接向使用者展示 249 个国家的单层下拉框。
