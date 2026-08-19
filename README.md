@@ -1,4 +1,118 @@
-# YouTube 博主数据中心 v1.2.1
+# YouTube 博主数据中心 v2.1.0
+> v2.1.0 表格交互一致性更新：监控健康默认 30 条/页；所有支持批量操作的表格增加跨全部页面的全选与清空选择。
+
+本项目是一个本地 Python + SQLite 的 YouTube Creator 数据中心。**不需要 Node/npm**。正常使用推荐交互 Dashboard；静态 Dashboard 用于只读快照。
+
+## 首次安装（推荐）
+
+1. 安装 Python 3.10+。推荐让命令行可以运行 `python --version`；如果只有 Windows Python Launcher（`py -3`），新版启动器也会自动使用。
+2. 在项目根目录运行：
+
+```powershell
+.\setup.cmd
+```
+
+`setup.cmd` 会自动安装 Python 依赖、初始化/升级 SQLite、检查 API Key、运行环境诊断并生成 Dashboard。完成后会出现下一步菜单，可直接启动交互 Dashboard、打开静态 Dashboard、安装自动监控或在线验证 API Key。若系统没有 `python` 命令但安装了 Windows Python Launcher，启动脚本会自动尝试 `py -3`。
+
+### 配置 YouTube API Key
+
+推荐执行：
+
+```powershell
+.\scripts\set-api-key.cmd
+```
+
+API Key 保存在 Windows 用户环境变量 `YOUTUBE_API_KEY`，不需要写入源码或配置文件。检查环境：
+
+```powershell
+python .\hub.py doctor
+```
+
+进一步验证 API Key 是否真的可用：
+
+```powershell
+python .\hub.py doctor --online
+```
+
+## 两种 Dashboard
+
+### 交互 Dashboard — 日常使用
+
+```powershell
+.\start-dashboard.cmd
+```
+
+浏览器通过 `http://127.0.0.1:8765/` 与**本机 Python + 本机 SQLite**通信。支持搜索、抓取、写库、完整筛选/分页、人工复核、联系方式抓取和完整 XLSX 导出。
+
+### 静态 Dashboard — 只读快照
+
+```powershell
+.\open-static-dashboard.cmd
+```
+
+直接打开生成的 HTML，不启动 Python 服务。适合离线查看；写操作、全库动态筛选和完整 XLSX 导出需要交互模式。
+
+Dashboard 顶部会明确显示“交互模式 / 静态只读”，交互模式还显示 Python、SQLite 和 API Key 状态。完整安装说明见 `docs/INSTALLATION.md`。
+
+
+## v2.1.0：统一分页与跨页批量选择
+
+- 【监控健康】纳入统一分页体系，默认每页 30 条，可调整每页数量、翻页和跳转。
+- 总览博主库、视频分类、本次搜索结果·博主、已保存发现记录·博主统一提供“勾选当前页 / 全选全部结果 / 清空选择”。
+- 跨页选择在翻页时保持；搜索或筛选范围变化时清空旧选择，避免误操作。
+- 视频分类跨页全选采用服务端 all-matching 选择，不需要把 50 万+ Video ID 先加载到浏览器。
+- SQLite Schema 仍为 10，不需要新增数据库结构迁移。
+
+## v2.0.0：长期运行、数据治理与工作流
+
+- 关键业务配置持久化到 SQLite：二次指标/规则和 Query Expansion 配置以 `app_settings` 为交互模式事实源，浏览器 localStorage 仅作为静态模式或临时草稿回退。
+- 【数据更新】新增数据库健康、SQLite 一致性备份/恢复和备份列表；恢复前自动创建安全备份。
+- 新增监控健康面板、Creator 级同步失败类型、连续失败次数、下次同步/重试时间和异常暂停；失败采用分级退避，连续 5 次异常会暂停重复消耗配额（quota/auth 除外）。
+- Snapshot 生命周期管理：近 30 天保留全部，31–180 天按日、181–730 天按周、两年以上按月保留；自动监控任务最多每 7 天执行一次压缩。
+- 博主发现新增“未处理 / 感兴趣 / 待联系 / 已入库 / 暂不考虑 / 永久排除”工作流；永久排除默认不会再次出现在本次搜索结果。
+- 发现记录增加首次/重复发现、历史发现次数、首次发现时间和最近发现时间。
+- 总览、博主发现和视频分类增加批量操作。
+- 二次指标增加分组、说明、创建/更新时间和依赖检查；被规则或其他指标引用的指标禁止直接删除。
+- 统一展示频道数据、视频指标、分类、联系方式、发现记录和完整同步的新鲜度时间。
+- SQLite Schema 升级至 10；旧数据库原地迁移，不删除原始 Creator / Video / Discovery / Label 数据。
+
+常用运维命令见 `docs/OPERATIONS.md`。
+
+## v1.6.0：应用结果条件可见性与视频分类性能优化
+
+- 【二次指标 → 应用结果 · 博主库】的当前规则改为临时查看状态，不再跨页面重启/版本升级静默残留；旧 localStorage 中的 activeRule 会在加载时自动归零。
+- 【清除全部条件】现在同时清除普通筛选、当前规则和搜索词；结果区明确显示“当前条件”和当前规则名称，避免少量命中被误认为数据缺失。
+- 【视频分类】交互模式不再先把 300 条静态预览渲染成“10 页”正式分页，而是先显示“正在连接本机 Python / 正在读取完整数据库第一页”。仅在静态只读模式下才显示 300 条预览分页。
+- 视频分类分页查询不再每次重复计算四项全库 KPI；顶部统计拆为独立轻量查询，只在人工复核/重新分类后刷新。
+- 默认无筛选的总数查询直接使用 `COUNT(videos)`；仅在筛选条件确实依赖分类/人工标签/Creator 时才加入对应 JOIN。
+- Schema 升级至 5，新增全局发布时间、系统分类角色/置信度和人工角色索引，改善 50 万+ 视频下的首页排序与常用筛选。
+
+## v1.5.0：全局二级导航与首次部署引导完善
+
+- 五个一级页面全部启用侧边栏二级导航；点击可平滑定位，滚动时自动高亮，URL Hash 可直接定位。
+- 【总览】提供“数据概览 / 身份与监控说明 / 博主库”；【二次指标】覆盖构建器、规则、已保存配置与应用结果；【视频分类】覆盖数据概览、复核说明、筛选与结果；【数据更新】覆盖监控调度、同步记录和 API 配额。
+- `setup.cmd` 完成后提供下一步菜单，可直接启动交互 Dashboard、打开静态 Dashboard、安装自动监控或在线验证 API Key。
+- 新增 `scripts/python-run.cmd`：优先使用 `python`，不可用时自动尝试 Windows Python Launcher `py -3`；主要 CMD 启动器统一使用该入口。
+- `doctor` 新增 `python_executable`、8765 端口可用性及端口错误信息，便于首次部署排查本机 Python / 交互服务问题。
+- 自动监控脚本使用同一 Python 解析逻辑，减少“手工能运行、计划任务找不到 Python”的环境差异。
+
+## v1.4.0：博主发现导航与历史关键词恢复
+
+- 【博主发现】左侧边栏在当前页面展开四个二级入口：搜索新博主、本次搜索结果 · 博主、已保存的发现记录 · 博主、已保存的发现记录 · 视频命中；点击后在主区域平滑定位，手动滚动时同步高亮。
+- 修复 v1.3.0 将所有旧博主级发现记录原关键词写成 `Legacy Discovery` 的问题。
+- v1.3 以前的 `discovery_hits` 原始视频命中证据不删除；升级时只重建派生的历史博主级记录。
+- 旧实际 Query 先剥离 Query Pack 已知长尾词，并利用历史中真实出现过的较短基础 Query 辅助恢复原关键词；历史恢复结果明确标记为【历史推断】，不会伪装成精确历史搜索批次。
+- 旧数据按“推断原关键词 × Creator”重新聚合，并生成稳定的 `legacy-keyword-*` 历史聚合 Run ID；v1.3+ 正式搜索继续标记为【精确记录】。
+- 【已保存的发现记录 · 博主】Dashboard 和 XLSX 均增加【关键词来源】，XLSX 的【原关键词】恢复为 Anime Expeditions、Bee Swarm Simulator、The Tower 等实际基础搜索词，而不再统一为 `Legacy Discovery`。
+
+## v1.3.0：安装引导、XLSX 导出与发现数据模型 v2
+
+- 新增 `setup.cmd`、`scripts/set-api-key.cmd` 和增强版 `doctor / doctor --online`。
+- 核心 Dashboard 表格均增加 XLSX 导出；交互模式导出**当前筛选后的全部结果**，不是只导出当前页 30 条。
+- 博主发现新增正式搜索批次 `discovery_runs`。
+- 同时保存两层发现数据：`discovery_creator_results`（一次搜索 × 一个博主）与 `discovery_hits`（实际 Query × 命中视频）。
+- 历史 v1.2 及更早的 `discovery_hits` 完整保留；v1.4.0 起不再使用单一 `Legacy Discovery` 汇总，而是按可恢复的原关键词生成【历史推断】聚合。
+- 【博主发现】历史界面分别展示/导出“博主记录”和“视频命中记录”。
 
 ## v1.2.1 交互筛选与二次指标排序修复
 
@@ -45,7 +159,7 @@ Creator 级筛选中的国家/地区统一改为“区域 → 国家/地区”�
 
 - 博主发现新增 Query Expansion 工作区。原关键词始终执行一次，启用 Query Pack 后再逐项搜索“原关键词 + 长尾词”。
 - 内置 6 个可编辑 Query Pack：Core、Farming / 成长收益、AFK / 云手机适配、Active Creator、Commercial / 评测比较、自定义。
-- 使用者可逐 Pack 启用/停用，并对当前语言的长尾词增加或删除；编辑状态保存在浏览器本地。
+- 使用者可逐 Pack 启用/停用，并对当前语言的长尾词增加或删除；交互模式的编辑状态保存到 SQLite，静态只读模式使用浏览器本地回退。
 - 默认 English，同时内置拉美西语、巴西葡语、泰语、越南语、印尼语、韩语、日语、繁体中文（台湾）。
 - Dashboard 显示本次实际 Query 预览、Query 数量，以及 API 搜索时的预计 `search.list` quota。
 - 网页搜索补充 continuation token 深度加载；API 搜索继续通过 `nextPageToken` 翻页。
@@ -112,7 +226,7 @@ Codex / 交互 Dashboard
 
 ## 推荐启动方式
 
-覆盖旧版本后，先双击 `upgrade.cmd`。它会删除旧版遗留的中文命名启动器、运行自检并重新生成 Dashboard。
+覆盖旧版本后，先双击 `upgrade.cmd`。v2.1.0 会先使用 SQLite Backup API 对现有 `data/creator_hub.sqlite` 创建 `backups/pre_upgrade_*.sqlite` 一致性备份，再执行 Schema 迁移、自检、清理旧 Dashboard 并重新生成。
 
 覆盖安装后，直接双击 Skill 根目录的 `start-dashboard.cmd`。它会启动本地 Python 交互服务并自动打开浏览器，搜索、抓取视频和获取联系方式等按钮均可直接使用。
 
@@ -214,7 +328,7 @@ python .\hub.py capture CHANNEL_ID --full-history
 
 ## 二次指标
 
-初始状态不预置业务指标。浏览器使用 `cdh-secondary-metrics-v6` 工作区。
+初始状态不预置业务指标。交互模式将二次指标/规则配置持久化到 SQLite `app_settings`；浏览器 `cdh-secondary-metrics-v6` 仅作为迁移来源、静态模式回退和临时草稿缓存。
 
 数据粒度严格分层：
 

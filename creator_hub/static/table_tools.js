@@ -26,7 +26,8 @@ function init(o){
  function reset(){page=1;render()}
  if(q)q.addEventListener('input',reset);if(sort)sort.addEventListener('change',reset);if(dir)dir.addEventListener('change',reset);(o.filters||[]).forEach(f=>document.getElementById(f.id)?.addEventListener('change',reset));
  if(psOk)psOk.onclick=()=>{size=pageSize(ps,size);if(ps)ps.value=String(size);reset()};
- render();return {render,go,setPageSize:n=>{size=Math.max(1,Math.min(5000,n||30));if(ps)ps.value=String(size);reset()}};
+ if(o.exportButtonId){const eb=document.getElementById(o.exportButtonId);if(eb)eb.onclick=()=>{if(!window.CDHExport)return alert('导出组件未加载');const table=tbody.closest('table'),heads=[...(table?.querySelectorAll('thead th')||[])].map((h,i)=>({key:`c${i}`,label:(h.textContent||`列${i+1}`).trim()})),data=filtered().map(r=>{const x={};[...r.children].forEach((td,i)=>x[`c${i}`]=(td.innerText||td.textContent||'').trim());return x});CDHExport.rows(o.exportName||'table_export.xlsx',o.exportSheet||'数据',heads,data).catch(e=>alert(e.message))}}
+ render();return {render,go,filtered,setPageSize:n=>{size=Math.max(1,Math.min(5000,n||30));if(ps)ps.value=String(size);reset()}};
 }
 window.CDHTableTools={init,renderPager,pageSize};
 })();

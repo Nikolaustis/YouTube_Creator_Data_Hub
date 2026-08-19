@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import re
 import urllib.request
+import uuid
+import sqlite3
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -28,6 +31,9 @@ from .util import (
 from .youtube_api import QuotaBudgetExceeded, YouTubeAPI, YouTubeAPIError
 
 
+KEYWORD_SOURCE_LABELS = {"exact": "精确记录", "inferred": "历史推断", "unknown": "无法还原"}
+
+
 class CreatorHub:
     def __init__(
         self,
@@ -48,6 +54,36 @@ class CreatorHub:
         if self._api is None:
             self._api = YouTubeAPI(self.db_path, self.settings, unit_budget=self.unit_budget)
         return self._api
+
+
+    # ---------- persistent user configuration ----------
+    _SETTING_KEYS = {"secondary_metrics", "query_profile", "dashboard_preferences"}
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        if key not in self._SETTING_KEYS:
+            raise ValueError("unsupported setting key")
+        with connect(self.db_path) as conn:
+            row=conn.execute("SELECT value_json FROM app_settings WHERE key=?",(key,)).fetchone()
+        return json_load(row["value_json"], default) if row else default
+
+    def set_setting(self, key: str, value: Any) -> dict[str, Any]:
+        if key not in self._SETTING_KEYS:
+            raise ValueError("unsupported setting key")
+        if key=="secondary_metrics":
+            from .metric_config import validate_metric_config
+            value=validate_metric_config(value)
+        if key in {"query_profile","dashboard_preferences"} and not isinstance(value,dict):
+            raise ValueError("setting value must be an object")
+        at=now_utc()
+        with connect(self.db_path) as conn:
+            conn.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",(key,json_dump(value),at))
+            conn.commit()
+        return {"key":key,"value":value,"updated_at":at}
+
+    def list_settings(self) -> dict[str, Any]:
+        with connect(self.db_path) as conn:
+            rows=conn.execute("SELECT key,value_json,updated_at FROM app_settings ORDER BY key").fetchall()
+        return {r["key"]:{"value":json_load(r["value_json"],None),"updated_at":r["updated_at"]} for r in rows}
 
     # ---------- normalization / persistence ----------
     @staticmethod
@@ -116,17 +152,18 @@ class CreatorHub:
     def upsert_creator(self, row: dict[str, Any], *, monitoring: bool | None = None, priority: str | None = None, source: str | None = None, snapshot: bool = True) -> None:
         captured_at = now_utc()
         with connect(self.db_path) as conn:
-            old = conn.execute("SELECT monitoring_enabled, priority, created_at, discovered_at, source FROM creators WHERE channel_id=?", (row["channel_id"],)).fetchone()
+            old = conn.execute("SELECT monitoring_enabled, priority, created_at, discovered_at, source, last_synced_at FROM creators WHERE channel_id=?", (row["channel_id"],)).fetchone()
             mon = int(monitoring) if monitoring is not None else (int(old["monitoring_enabled"]) if old else 0)
             pr = priority or (old["priority"] if old else "normal")
             created = old["created_at"] if old else captured_at
             discovered = old["discovered_at"] if old and old["discovered_at"] else captured_at
             src = source or (old["source"] if old else "youtube")
+            last_synced = old["last_synced_at"] if old else None
             conn.execute(
                 """INSERT INTO creators(channel_id, channel_title, handle, channel_url, description, country_api, published_at,
                 subscriber_count, channel_view_count, channel_video_count, hidden_subscriber_count, uploads_playlist_id,
-                thumbnail_url, monitoring_enabled, priority, source, discovered_at, created_at, last_synced_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                thumbnail_url, monitoring_enabled, priority, source, discovered_at, created_at, last_synced_at, channel_data_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(channel_id) DO UPDATE SET
                   channel_title=excluded.channel_title, handle=excluded.handle, channel_url=excluded.channel_url,
                   description=excluded.description, country_api=excluded.country_api, published_at=excluded.published_at,
@@ -134,12 +171,12 @@ class CreatorHub:
                   channel_video_count=excluded.channel_video_count, hidden_subscriber_count=excluded.hidden_subscriber_count,
                   uploads_playlist_id=excluded.uploads_playlist_id, thumbnail_url=excluded.thumbnail_url,
                   monitoring_enabled=excluded.monitoring_enabled, priority=excluded.priority, source=excluded.source,
-                  last_synced_at=excluded.last_synced_at""",
+                  channel_data_at=excluded.channel_data_at""",
                 (
                     row["channel_id"], row.get("channel_title"), row.get("handle"), row.get("channel_url"), row.get("description"),
                     row.get("country_api"), row.get("published_at"), row.get("subscriber_count"), row.get("channel_view_count"),
                     row.get("channel_video_count"), row.get("hidden_subscriber_count"), row.get("uploads_playlist_id"),
-                    row.get("thumbnail_url"), mon, pr, src, discovered, created, captured_at,
+                    row.get("thumbnail_url"), mon, pr, src, discovered, created, last_synced, captured_at,
                 ),
             )
             if row.get("country_api"):
@@ -187,6 +224,8 @@ class CreatorHub:
                 (row["video_id"], suggestion["suggested_role"], json_dump(suggestion.get("brands") or []), suggestion["confidence"],
                  json_dump(suggestion.get("evidence") or []), suggestion["generated_at"], suggestion["rule_version"]),
             )
+            conn.execute("UPDATE creators SET video_metrics_at=?, classification_data_at=? WHERE channel_id=?",
+                         (captured_at, suggestion.get("generated_at") or captured_at, row["channel_id"]))
             conn.commit()
 
     # ---------- resolving ----------
@@ -244,6 +283,11 @@ class CreatorHub:
                                  country_resolved=COALESCE(NULLIF(country_resolved,''),?),country_source=COALESCE(NULLIF(country_source,''),?) WHERE channel_id=?""",
                                  (d["pre_score"],d["opportunity_tier"],now_utc(),d["public_email"],d["social_links_json"],d["website_url"],d["contactability_score"],d["contact_status"],d["country_resolved"],d["country_source"],cid))
                     conn.commit()
+        if source.startswith("discovery") or source=="batch_add":
+            try:
+                self.set_creator_workflow(cid,"added",actor="system-add")
+            except Exception:
+                pass
         return row
 
     # ---------- discovery ----------
@@ -291,14 +335,15 @@ class CreatorHub:
     def discover(self, query: str, *, max_results: int = 100, region: str | None = None, language: str | None = None,
                  add: bool = False, search_source: str = "web", target_country: str | None = None,
                  target_group: str | None = None, lookback_days: int | None = None,
-                 from_date: str | None = None, to_date: str | None = None) -> dict[str, Any]:
+                 from_date: str | None = None, to_date: str | None = None,
+                 run_id: str | None = None, found_at_override: str | None = None) -> dict[str, Any]:
         """Search related videos first, then resolve the creators that published them.
 
         Web search is preferred (related-video to creator discovery) and does not spend search.list quota. API search remains a fallback.
         Discovery results are persisted in discovery_hits but do not enter the creator library unless add=True.
         """
         max_results = max(1, min(int(max_results), 500))
-        found_at = now_utc(); candidates: list[dict[str, Any]] = []
+        found_at = found_at_override or now_utc(); candidates: list[dict[str, Any]] = []
         source = search_source.lower().replace("-", "_")
         if source in {"web", "youtube_web_search"}:
             try:
@@ -379,10 +424,10 @@ class CreatorHub:
             candidates=[c for c in candidates if (c.get("country_resolved") or c.get("country_api") or "").upper() in allowed]
         with connect(self.db_path) as conn:
             conn.executemany(
-                """INSERT OR IGNORE INTO discovery_hits(query,source,rank,video_id,channel_id,channel_title,channel_url,title,published_at,
+                """INSERT OR IGNORE INTO discovery_hits(run_id,query,source,rank,video_id,channel_id,channel_title,channel_url,title,published_at,
                    views,likes,comments,subscribers,country_resolved,country_source,pre_score,opportunity_tier,engagement_rate,comment_rate,
-                   view_sub_ratio,relative_velocity,found_at,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                [(c["query"],c["source"],c.get("rank"),c.get("video_id"),c.get("channel_id"),c.get("channel_title"),c.get("channel_url"),c.get("title"),c.get("published_at"),
+                   view_sub_ratio,relative_velocity,found_at,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                [(run_id,c["query"],c["source"],c.get("rank"),c.get("video_id"),c.get("channel_id"),c.get("channel_title"),c.get("channel_url"),c.get("title"),c.get("published_at"),
                   c.get("views"),c.get("likes"),c.get("comments"),c.get("subscribers"),c.get("country_resolved"),c.get("country_source"),c.get("pre_score"),c.get("opportunity_tier"),
                   c.get("engagement_rate"),c.get("comment_rate"),c.get("view_sub_ratio"),c.get("relative_velocity"),c["found_at"],c.get("raw_json")) for c in candidates]
             ); conn.commit()
@@ -408,16 +453,42 @@ class CreatorHub:
         result=sorted(best.values(), key=lambda x: (x.get("pre_score") or 0, -(x.get("rank") or 999999)), reverse=True)
         return {"query":query,"hits":len(candidates),"unique_creators":len(best),"added_to_monitoring":added,"found_at":found_at,"results":result}
 
+    def _refresh_discovery_summary(self, channel_ids: Iterable[str] | None = None) -> None:
+        ids=list(dict.fromkeys(str(x) for x in (channel_ids or []) if x))
+        where="";params=[]
+        if ids:
+            where=f"WHERE r.channel_id IN ({','.join('?' for _ in ids)})";params=ids
+        with connect(self.db_path) as conn:
+            rows=conn.execute(f"""SELECT r.channel_id,r.run_id,r.found_at,r.hit_video_count,r.best_discovery_score,dr.base_query
+                                FROM discovery_creator_results r LEFT JOIN discovery_runs dr ON dr.run_id=r.run_id
+                                {where} ORDER BY r.channel_id,r.found_at,r.id""",tuple(params)).fetchall()
+            agg={}
+            for r in rows:
+                cid=r['channel_id'];a=agg.setdefault(cid,{'first':r['found_at'] or '','last':r['found_at'] or '','runs':set(),'hits':0,'best':None,'query':''})
+                at=r['found_at'] or ''
+                if at and (not a['first'] or at<a['first']):a['first']=at
+                if at and (not a['last'] or at>=a['last']):a['last']=at;a['query']=r['base_query'] or ''
+                if r['run_id']:a['runs'].add(r['run_id'])
+                a['hits']+=int(r['hit_video_count'] or 0)
+                sc=r['best_discovery_score']
+                if sc is not None and (a['best'] is None or float(sc)>float(a['best'])):a['best']=float(sc)
+            at=now_utc()
+            for cid,a in agg.items():
+                conn.execute("""INSERT INTO creator_discovery_summary(channel_id,first_seen_at,last_seen_at,discovery_run_count,hit_video_count_total,best_discovery_score,last_base_query,updated_at)
+                              VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(channel_id) DO UPDATE SET first_seen_at=excluded.first_seen_at,last_seen_at=excluded.last_seen_at,discovery_run_count=excluded.discovery_run_count,hit_video_count_total=excluded.hit_video_count_total,best_discovery_score=excluded.best_discovery_score,last_base_query=excluded.last_base_query,updated_at=excluded.updated_at""",
+                             (cid,a['first'],a['last'],len(a['runs']),a['hits'],a['best'],a['query'],at))
+            conn.commit()
+
     def discover_expanded(self, base_query: str, queries: list[str] | None = None, *, max_results: int = 50,
                           region: str | None = None, language: str | None = None, search_source: str = "web",
                           target_country: str | None = None, target_group: str | None = None,
                           lookback_days: int | None = None, from_date: str | None = None,
-                          to_date: str | None = None, max_queries: int = 80) -> dict[str, Any]:
-        """Run the base query plus Query Expansion variants and merge creators deterministically.
+                          to_date: str | None = None, max_queries: int = 80,
+                          query_language: str | None = None) -> dict[str, Any]:
+        """Run one discovery batch and persist both creator-level and video-level evidence.
 
-        Every executed query is persisted independently in discovery_hits, preserving the exact
-        search phrase that found the video. The returned creator pool is de-duplicated by channel
-        and keeps the highest-scoring hit while recording how many queries matched the creator.
+        v1.3+ gives every search a run_id.  Each exact video hit remains in discovery_hits,
+        while the de-duplicated per-creator outcome is saved in discovery_creator_results.
         """
         base=(base_query or "").strip()
         if not base:
@@ -425,41 +496,62 @@ class CreatorHub:
         raw=[base]+list(queries or [])
         normalized=[]; seen=set()
         for q in raw:
-            q=" ".join(str(q or "").split()).strip()
-            k=q.casefold()
-            if not q or k in seen:
-                continue
+            q=" ".join(str(q or "").split()).strip(); k=q.casefold()
+            if not q or k in seen: continue
             seen.add(k); normalized.append(q)
-            if len(normalized) >= max(1, int(max_queries)):
-                break
-        merged: dict[str, dict[str, Any]] = {}
-        total_hits=0; executed=[]; errors=[]; found_at=now_utc()
+            if len(normalized)>=max(1,int(max_queries)): break
+        run_id=uuid.uuid4().hex
+        found_at=now_utc()
+        with connect(self.db_path) as conn:
+            conn.execute("""INSERT INTO discovery_runs(run_id,base_query,search_source,search_language,query_language,queries_requested_json,target_group,target_country,region,lookback_days,from_date,to_date,max_results,started_at,status)
+                          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (run_id,base,search_source,language or '',query_language or language or '',json_dump(normalized),target_group or '',target_country or '',region or '',lookback_days,from_date or '',to_date or '',int(max_results),found_at,'running'))
+            conn.commit()
+        merged: dict[str,dict[str,Any]]={}; total_hits=0; executed=[]; errors=[]
         for q in normalized:
             try:
                 r=self.discover(q,max_results=max_results,region=region,language=language,add=False,
                     search_source=search_source,target_country=target_country,target_group=target_group,
-                    lookback_days=lookback_days,from_date=from_date,to_date=to_date)
+                    lookback_days=lookback_days,from_date=from_date,to_date=to_date,
+                    run_id=run_id,found_at_override=found_at)
             except Exception as e:
                 errors.append({"query":q,"error":f"{type(e).__name__}: {e}"})
-                # Quota/budget errors make later API queries unlikely to succeed; return the partial pool.
-                if "quota" in str(e).lower() or "budget" in str(e).lower():
-                    break
+                if "quota" in str(e).lower() or "budget" in str(e).lower(): break
                 continue
-            executed.append(q); total_hits += int(r.get("hits") or 0)
+            executed.append(q); total_hits+=int(r.get("hits") or 0)
             for c0 in r.get("results") or []:
                 c=dict(c0); cid=c.get("channel_id") or c.get("channel_title") or c.get("video_id")
-                if not cid:
-                    continue
-                old=merged.get(cid)
-                matched=list((old or {}).get("matched_queries") or [])
-                if q not in matched:
-                    matched.append(q)
-                if old is None or float(c.get("pre_score") or 0) > float(old.get("pre_score") or 0):
+                if not cid: continue
+                old=merged.get(cid); matched=list((old or {}).get("matched_queries") or [])
+                if q not in matched: matched.append(q)
+                if old is None or float(c.get("pre_score") or 0)>float(old.get("pre_score") or 0):
                     c["matched_queries"]=matched; c["query_coverage"]=len(matched); merged[cid]=c
                 else:
                     old["matched_queries"]=matched; old["query_coverage"]=len(matched)
-        result=sorted(merged.values(), key=lambda x:(float(x.get("pre_score") or 0),int(x.get("query_coverage") or 0)), reverse=True)
-        return {"query":base,"queries_requested":normalized,"queries_executed":executed,"query_count":len(executed),
+        # Derive exact hit counts from the persisted video-hit layer for this run.
+        with connect(self.db_path) as conn:
+            hit_counts={r['channel_id']:int(r['n'] or 0) for r in conn.execute("SELECT channel_id,COUNT(DISTINCT video_id) n FROM discovery_hits WHERE run_id=? GROUP BY channel_id",(run_id,)).fetchall()}
+            payload=[]
+            for cid,c in merged.items():
+                payload.append((run_id,cid,c.get('channel_title'),c.get('channel_url'),c.get('subscribers'),c.get('country_resolved'),c.get('country_source'),c.get('video_id'),c.get('title'),c.get('views'),c.get('pre_score'),c.get('opportunity_tier'),int(c.get('query_coverage') or 0),json_dump(c.get('matched_queries') or []),int(hit_counts.get(cid,0)),found_at))
+            if payload:
+                conn.executemany("""INSERT OR REPLACE INTO discovery_creator_results(run_id,channel_id,channel_title,channel_url,subscribers,country_resolved,country_source,best_video_id,best_video_title,best_video_views,best_discovery_score,opportunity_tier,query_coverage,matched_queries_json,hit_video_count,found_at)
+                                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",payload)
+            status='partial' if errors else 'complete'
+            conn.execute("""UPDATE discovery_runs SET queries_executed_json=?,finished_at=?,status=?,hits=?,unique_creators=?,errors_json=? WHERE run_id=?""",
+                         (json_dump(executed),now_utc(),status,int(total_hits),len(merged),json_dump(errors),run_id))
+            conn.commit()
+        self._refresh_discovery_summary(merged.keys())
+        workflows=self.creator_workflow_map(merged.keys())
+        with connect(self.db_path) as conn:
+            summaries={r['channel_id']:dict(r) for r in conn.execute(f"SELECT * FROM creator_discovery_summary WHERE channel_id IN ({','.join('?' for _ in merged)})",tuple(merged.keys())).fetchall()} if merged else {}
+        for cid,c in merged.items():
+            wf=workflows.get(cid) or {};sm=summaries.get(cid) or {}
+            c['workflow_status']=wf.get('status') or 'unreviewed';c['workflow_label']=self._workflow_label(c['workflow_status'])
+            c['discovery_run_count']=int(sm.get('discovery_run_count') or 1);c['first_seen_at']=sm.get('first_seen_at') or found_at;c['last_seen_at']=sm.get('last_seen_at') or found_at
+            c['discovery_freshness']='first' if c['discovery_run_count']<=1 else 'repeat';c['hidden_by_default']=c['workflow_status']=='excluded'
+        result=sorted(merged.values(),key=lambda x:(float(x.get('pre_score') or 0),int(x.get('query_coverage') or 0)),reverse=True)
+        return {"run_id":run_id,"query":base,"queries_requested":normalized,"queries_executed":executed,"query_count":len(executed),
                 "hits":total_hits,"unique_creators":len(merged),"added_to_monitoring":0,"found_at":found_at,
                 "errors":errors,"results":result}
 
@@ -484,8 +576,9 @@ class CreatorHub:
                 if len(str(to_date))<=10: upper=upper+timedelta(days=1)
             ids=self._playlist_video_ids_between(cid, cutoff, upper)
         processed=self.hydrate_videos(ids)
+        at=now_utc();cur=parse_iso(at);hours=self._sync_due_hours(priority or "normal","incremental");nxt=(cur+timedelta(hours=hours)).isoformat().replace("+00:00","Z") if cur else None
         with connect(self.db_path) as conn:
-            conn.execute("UPDATE creators SET last_synced_at=? WHERE channel_id=?",(now_utc(),cid)); conn.commit()
+            conn.execute("UPDATE creators SET last_synced_at=?,last_sync_attempt_at=?,last_sync_status='complete',last_sync_error=NULL,sync_error_type=NULL,consecutive_sync_failures=0,next_retry_at=NULL,next_sync_at=?,sync_suspended=0 WHERE channel_id=?",(at,at,nxt,cid)); conn.commit()
         return {"channel_id":cid,"videos_processed":processed,"days":days,"from_date":from_date,"to_date":to_date,"full_history":full_history}
 
     def _playlist_video_ids_between(self, channel_id: str, cutoff, upper=None) -> list[str]:
@@ -595,32 +688,44 @@ class CreatorHub:
                 count += 1
         return count
 
-    def sync_creator(self, ref: str, *, mode: str = "incremental", metric_days: int | None = None, all_videos: bool = False, priority: str | None = None) -> dict[str, Any]:
+    def sync_creator(self, ref: str, *, mode: str = "incremental", metric_days: int | None = None, all_videos: bool = False, priority: str | None = None, sync_run_id: int | None = None) -> dict[str, Any]:
         mode = mode.replace("_", "-")
         cid = self.resolve_channel_id(ref)
-        row = self.fetch_channel(cid)
+        started=now_utc();attempt_id=None
         with connect(self.db_path) as conn:
             old = conn.execute("SELECT monitoring_enabled,priority FROM creators WHERE channel_id=?", (cid,)).fetchone()
-        self.upsert_creator(row, monitoring=bool(old["monitoring_enabled"]) if old else True, priority=priority or (old["priority"] if old else "normal"), source="sync")
-        processed = 0
-        if mode in {"full-history", "full"}:
-            ids, _ = self._playlist_video_ids(cid, full=True)
-            processed += self.hydrate_videos(ids)
-        elif mode in {"incremental", "new"}:
-            ids, _ = self._playlist_video_ids(cid, full=False)
-            processed += self.hydrate_videos(ids)
-            # Also refresh recent known videos so current metrics stay fresh.
-            processed += self.refresh_metrics(cid, days=metric_days, all_videos=False)
-        elif mode in {"metrics-only", "metrics"}:
-            processed += self.refresh_metrics(cid, days=metric_days, all_videos=all_videos)
-        elif mode in {"channel-only", "channel"}:
-            pass
-        else:
-            raise ValueError(f"未知同步模式：{mode}")
-        with connect(self.db_path) as conn:
-            conn.execute("UPDATE creators SET last_synced_at=? WHERE channel_id=?", (now_utc(), cid))
-            conn.commit()
-        return {"channel_id": cid, "mode": mode, "videos_processed": processed}
+            if old:
+                attempt_id=conn.execute("INSERT INTO creator_sync_attempts(sync_run_id,channel_id,mode,started_at,status) VALUES(?,?,?,?,?)",(sync_run_id,cid,mode,started,"running")).lastrowid
+                conn.execute("UPDATE creators SET last_sync_attempt_at=?,last_sync_status='running' WHERE channel_id=?",(started,cid));conn.commit()
+        pr=priority or (old["priority"] if old else "normal")
+        try:
+            row = self.fetch_channel(cid)
+            self.upsert_creator(row, monitoring=bool(old["monitoring_enabled"]) if old else True, priority=pr, source="sync")
+            if attempt_id is None:
+                with connect(self.db_path) as conn:
+                    attempt_id=conn.execute("INSERT INTO creator_sync_attempts(sync_run_id,channel_id,mode,started_at,status) VALUES(?,?,?,?,?)",(sync_run_id,cid,mode,started,"running")).lastrowid
+                    conn.execute("UPDATE creators SET last_sync_attempt_at=?,last_sync_status='running' WHERE channel_id=?",(started,cid));conn.commit()
+            processed = 0
+            if mode in {"full-history", "full"}:
+                ids, _ = self._playlist_video_ids(cid, full=True)
+                processed += self.hydrate_videos(ids)
+            elif mode in {"incremental", "new"}:
+                ids, _ = self._playlist_video_ids(cid, full=False)
+                processed += self.hydrate_videos(ids)
+                processed += self.refresh_metrics(cid, days=metric_days, all_videos=False)
+            elif mode in {"metrics-only", "metrics"}:
+                processed += self.refresh_metrics(cid, days=metric_days, all_videos=all_videos)
+            elif mode in {"channel-only", "channel"}:
+                pass
+            else:
+                raise ValueError(f"未知同步模式：{mode}")
+            self._record_sync_success(cid,mode=mode,attempt_id=attempt_id,videos=processed,priority=pr)
+            return {"channel_id": cid, "mode": mode, "videos_processed": processed, "sync_status":"complete"}
+        except Exception as e:
+            state=self._record_sync_failure(cid,mode=mode,attempt_id=attempt_id,exc=e) if attempt_id is not None else {}
+            try: setattr(e,"creator_sync_state",state)
+            except Exception: pass
+            raise
 
     def refresh_metrics(self, channel_id: str, *, days: int | None = None, all_videos: bool = False) -> int:
         days = days if days is not None else int(self.settings["collection"]["metrics_recent_days"])
@@ -651,54 +756,47 @@ class CreatorHub:
         started = now_utc(); now_dt=parse_iso(started)
         with connect(self.db_path) as conn:
             run_id = conn.execute("INSERT INTO sync_runs(mode,target,started_at,status) VALUES(?,?,?,?)", (mode, (priority or "all_monitored")+("_force" if force else "_due"), started, "running")).lastrowid
-            sql = "SELECT channel_id,priority,last_synced_at FROM creators WHERE monitoring_enabled=1"
+            sql = "SELECT channel_id,priority,last_synced_at,last_sync_status,next_retry_at,sync_suspended,consecutive_sync_failures FROM creators WHERE monitoring_enabled=1"
             params: list[Any] = []
             if priority:
-                sql += " AND priority=?"
-                params.append(priority)
-            sql += " ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 3 END, COALESCE(last_synced_at,'') ASC"
+                sql += " AND priority=?"; params.append(priority)
             candidates=[dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
             conn.commit()
-        due=[]; skipped_not_due=0
+        due=[]; skipped_not_due=0; skipped_suspended=0; retry_wait=0
         for row in candidates:
+            if row.get("sync_suspended") and not force:
+                skipped_suspended += 1; continue
+            retry=parse_iso(row.get("next_retry_at"))
+            if row.get("last_sync_status")=="failed" and retry and now_dt:
+                if retry<=now_dt: due.append(row); continue
+                if not force: retry_wait += 1; continue
             if force or not row.get("last_synced_at"):
                 due.append(row); continue
-            last=parse_iso(row.get("last_synced_at"))
-            hours=self._sync_due_hours(row.get("priority") or "normal",mode)
-            if not last or not now_dt or (now_dt-last).total_seconds() >= hours*3600:
-                due.append(row)
-            else:
-                skipped_not_due += 1
-        if limit is not None:
-            due=due[:max(0,int(limit))]
-        channels=[r["channel_id"] for r in due]
-        creators_done = 0
-        videos_done = 0
-        errors: list[str] = []
+            last=parse_iso(row.get("last_synced_at"));hours=self._sync_due_hours(row.get("priority") or "normal",mode)
+            if not last or not now_dt or (now_dt-last).total_seconds() >= hours*3600: due.append(row)
+            else: skipped_not_due += 1
+        due.sort(key=lambda r:(0 if r.get("last_sync_status")=="failed" else 1,{"high":0,"normal":1,"low":2,"archive":3}.get(r.get("priority"),9),r.get("last_synced_at") or ""))
+        if limit is not None: due=due[:max(0,int(limit))]
+        channels=[r["channel_id"] for r in due];creators_done=0;videos_done=0;errors=[]
         try:
             for cid in channels:
                 try:
-                    res = self.sync_creator(cid, mode=mode, metric_days=metric_days, all_videos=all_videos)
-                    creators_done += 1
-                    videos_done += int(res["videos_processed"])
-                except (YouTubeAPIError, QuotaBudgetExceeded) as e:
-                    errors.append(f"{cid}: {e}")
-                    if isinstance(e, QuotaBudgetExceeded) or getattr(e, "reason", None) in {"quotaExceeded", "dailyLimitExceeded"}:
-                        break
+                    res=self.sync_creator(cid,mode=mode,metric_days=metric_days,all_videos=all_videos,sync_run_id=run_id)
+                    creators_done+=1;videos_done+=int(res["videos_processed"])
+                except (YouTubeAPIError,QuotaBudgetExceeded) as e:
+                    state=getattr(e,"creator_sync_state",{}) or {};errors.append(f"{cid}: {state.get('error_type') or type(e).__name__}: {e}")
+                    if isinstance(e,QuotaBudgetExceeded) or getattr(e,"reason",None) in {"quotaExceeded","dailyLimitExceeded"}: break
                 except Exception as e:
-                    errors.append(f"{cid}: {type(e).__name__}: {e}")
-            status = "complete" if not errors else ("partial" if creators_done else "failed")
+                    state=getattr(e,"creator_sync_state",{}) or {};errors.append(f"{cid}: {state.get('error_type') or type(e).__name__}: {e}")
+            status="complete" if not errors else ("partial" if creators_done else "failed")
         except Exception as e:
-            status = "failed"
-            errors.append(str(e))
-        units = self.api.usage.units if self._api else 0
-        note=f"due={len(channels)}; skipped_not_due={skipped_not_due}; force={force}"
+            status="failed";errors.append(str(e))
+        units=self.api.usage.units if self._api else 0
+        note=f"due={len(channels)}; skipped_not_due={skipped_not_due}; retry_wait={retry_wait}; suspended={skipped_suspended}; force={force}"
         message=(note+("\n"+"\n".join(errors) if errors else ""))[:10000]
         with connect(self.db_path) as conn:
-            conn.execute("UPDATE sync_runs SET finished_at=?,status=?,creators_processed=?,videos_processed=?,quota_units=?,message=? WHERE id=?",
-                         (now_utc(), status, creators_done, videos_done, units, message, run_id))
-            conn.commit()
-        return {"run_id": run_id, "status": status, "creators_processed": creators_done, "videos_processed": videos_done, "quota_units": units, "errors": errors, "eligible_due": len(channels), "skipped_not_due": skipped_not_due, "force": force}
+            conn.execute("UPDATE sync_runs SET finished_at=?,status=?,creators_processed=?,videos_processed=?,quota_units=?,message=? WHERE id=?",(now_utc(),status,creators_done,videos_done,units,message,run_id));conn.commit()
+        return {"run_id":run_id,"status":status,"creators_processed":creators_done,"videos_processed":videos_done,"quota_units":units,"errors":errors,"eligible_due":len(channels),"skipped_not_due":skipped_not_due,"retry_wait":retry_wait,"skipped_suspended":skipped_suspended,"force":force}
 
     # ---------- offline classification ----------
     def reclassify_videos(self, *, only_missing: bool = False, limit: int | None = None, batch_size: int = 2000) -> dict[str, Any]:
@@ -711,7 +809,7 @@ class CreatorHub:
         offset = 0
         while True:
             with connect(self.db_path) as conn:
-                sql = """SELECT v.video_id,v.title,v.description,v.tags_json
+                sql = """SELECT v.video_id,v.channel_id,v.title,v.description,v.tags_json
                          FROM videos v LEFT JOIN label_suggestions s ON s.video_id=v.video_id"""
                 params: list[Any] = []
                 if only_missing:
@@ -748,6 +846,9 @@ class CreatorHub:
                     generated_at=excluded.generated_at,rule_version=excluded.rule_version""",
                     payload,
                 )
+                cids=list(dict.fromkeys(r["channel_id"] for r in rows if r["channel_id"]))
+                if cids:
+                    marks=','.join('?' for _ in cids);conn.execute(f"UPDATE creators SET classification_data_at=? WHERE channel_id IN ({marks})",tuple([now_utc()]+cids))
                 conn.commit()
             processed += len(rows)
             if only_missing:
@@ -760,11 +861,37 @@ class CreatorHub:
         return {"videos_reclassified": processed, "only_missing": only_missing, "api_calls": 0, "rule_version": self.brand_cfg.get("rule_version")}
 
     # ---------- video classification / review ----------
-    def classification_list(self, *, page: int = 1, page_size: int = 30, search: str = "", role: str = "", brand: str = "", conditions: list[dict[str,Any]] | None = None, sort: str = "published", direction: str = "desc") -> dict[str, Any]:
+    def classification_stats(self) -> dict[str, int]:
+        """Return classification KPI counts without joining the full video table.
+
+        The classification list is latency-sensitive. These totals are intentionally
+        separated from page queries so opening, filtering and paging 500k+ videos does
+        not repeat a global multi-table aggregation every time.
+        """
+        with connect(self.db_path) as conn:
+            all_total = conn.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
+            classified_total = conn.execute("SELECT COUNT(*) FROM label_suggestions").fetchone()[0]
+            reviewed_total = conn.execute("SELECT COUNT(*) FROM video_labels").fetchone()[0]
+            pending_total = conn.execute(
+                """SELECT COUNT(*)
+                   FROM label_suggestions s
+                   LEFT JOIN video_labels l ON l.video_id=s.video_id
+                   WHERE l.video_id IS NULL
+                     AND (s.suggested_role='pending' OR s.confidence='review')"""
+            ).fetchone()[0]
+        return {
+            "all_total": int(all_total or 0),
+            "classified_total": int(classified_total or 0),
+            "pending_total": int(pending_total or 0),
+            "reviewed_total": int(reviewed_total or 0),
+        }
+
+    def classification_list(self, *, page: int = 1, page_size: int = 30, search: str = "", role: str = "", brand: str = "", conditions: list[dict[str,Any]] | None = None, sort: str = "published", direction: str = "desc", include_stats: bool = False) -> dict[str, Any]:
         """List all locally stored videos with system classification and optional human override.
 
-        The classification page is an all-video management surface. "Pending review" is
-        only one filter state, not the base dataset.
+        Page data and filtered totals are resolved first. Global classification KPIs are
+        optional and normally requested separately, avoiding repeated 500k-row aggregate
+        joins during paging/sorting/filtering.
         """
         page=max(1,int(page or 1)); page_size=max(1,min(5000,int(page_size or 30)))
         where=["1=1"]
@@ -816,13 +943,20 @@ class CreatorHub:
         order=order_map.get(sort,"v.published_at"); d="ASC" if str(direction).lower()=="asc" else "DESC"
         where_sql=" AND ".join(where)
         base_from="""FROM videos v LEFT JOIN label_suggestions s ON s.video_id=v.video_id JOIN creators c ON c.channel_id=v.channel_id LEFT JOIN video_labels l ON l.video_id=v.video_id"""
+
+        # Build the lightest possible COUNT query. The unfiltered initial page is a
+        # direct COUNT(videos), while video-only numeric/date filters also avoid label joins.
+        cond_fields={str(c.get("field") or "") for c in conds}
+        need_l=bool(role or brand or cond_fields & {"role","brand","review_status"})
+        need_s=bool(role or brand or cond_fields & {"role","system_role","brand","review_status","confidence"}) or need_l
+        need_c=bool(search)
+        count_from="FROM videos v"
+        if need_s: count_from+=" LEFT JOIN label_suggestions s ON s.video_id=v.video_id"
+        if need_c: count_from+=" JOIN creators c ON c.channel_id=v.channel_id"
+        if need_l: count_from+=" LEFT JOIN video_labels l ON l.video_id=v.video_id"
+
         with connect(self.db_path) as conn:
-            totals=conn.execute(f"""SELECT COUNT(*) AS all_total,
-                SUM(CASE WHEN s.video_id IS NOT NULL THEN 1 ELSE 0 END) AS classified_total,
-                SUM(CASE WHEN l.video_id IS NULL AND (COALESCE(s.suggested_role,'pending')='pending' OR s.confidence='review') THEN 1 ELSE 0 END) AS pending_total,
-                SUM(CASE WHEN l.video_id IS NOT NULL THEN 1 ELSE 0 END) AS reviewed_total
-                {base_from}""").fetchone()
-            total=conn.execute(f"SELECT COUNT(*) {base_from} WHERE {where_sql}",tuple(params)).fetchone()[0]
+            total=conn.execute(f"SELECT COUNT(*) {count_from} WHERE {where_sql}",tuple(params)).fetchone()[0]
             pages=max(1,(int(total)+page_size-1)//page_size); page=min(page,pages); offset=(page-1)*page_size
             rows=conn.execute(f"""SELECT v.video_id,v.title,v.channel_id,v.published_at,v.current_views,v.current_likes,v.current_comments,v.duration_seconds,
                 s.suggested_role,s.brands_json AS system_brands_json,s.confidence,s.evidence_json,s.rule_version,
@@ -842,11 +976,10 @@ class CreatorHub:
             x["requires_review"]=(not x["manual_reviewed"] and ((x.get("suggested_role") or "pending")=="pending" or x.get("confidence")=="review"))
             x["review_status"]="manual_reviewed" if x["manual_reviewed"] else ("pending_review" if x["requires_review"] else "system_only")
             out.append(x)
-        return {
-            "rows":out,"total":int(total),"page":page,"page_size":page_size,"pages":pages,
-            "all_total":int(totals["all_total"] or 0),"classified_total":int(totals["classified_total"] or 0),
-            "pending_total":int(totals["pending_total"] or 0),"reviewed_total":int(totals["reviewed_total"] or 0),
-        }
+        result={"rows":out,"total":int(total),"page":page,"page_size":page_size,"pages":pages}
+        if include_stats:
+            result.update(self.classification_stats())
+        return result
 
     def review_queue(self, *, page: int = 1, page_size: int = 30, search: str = "", role: str = "", brand: str = "", conditions: list[dict[str,Any]] | None = None, sort: str = "published", direction: str = "desc") -> dict[str, Any]:
         """Compatibility wrapper returning only unresolved review items."""
@@ -892,21 +1025,72 @@ class CreatorHub:
             after=conn.execute("""SELECT COUNT(*) FROM label_suggestions s LEFT JOIN video_labels l ON l.video_id=s.video_id WHERE l.video_id IS NULL AND (s.suggested_role='pending' OR s.confidence='review')""").fetchone()[0]
         return {"videos_reclassified":processed,"before":before,"after":int(after),"api_calls":0,"rule_version":self.brand_cfg.get("rule_version")}
 
+    def discovery_creator_history(self, *, page:int=1, page_size:int=30, search:str="", conditions:list[dict[str,Any]]|None=None, sort:str="score", direction:str="desc") -> dict[str,Any]:
+        """Saved creator-level discovery outcomes: one row per search run x creator."""
+        page=max(1,int(page or 1)); page_size=max(1,min(5000,int(page_size or 30)))
+        where=[]; params:list[Any]=[]
+        if search:
+            q=f"%{search.lower()}%"; where.append("(lower(COALESCE(r.channel_title,'')) LIKE ? OR lower(COALESCE(dr.base_query,'')) LIKE ? OR lower(COALESCE(r.best_video_title,'')) LIKE ? OR lower(COALESCE(r.country_resolved,'')) LIKE ? OR lower(COALESCE(r.channel_id,'')) LIKE ?)"); params.extend([q,q,q,q,q])
+        def expr(cond:dict[str,Any]):
+            field=str(cond.get('field') or ''); value=str(cond.get('value') or '')
+            if field=='status': return ("c.channel_id IS NOT NULL" if value=='library' else "c.channel_id IS NULL"),[]
+            if field=='tier': return "COALESCE(r.opportunity_tier,'')=?",[value]
+            if field=='workflow': return "COALESCE(wf.status,'unreviewed')=?",[value]
+            if field=='freshness':
+                return ("COALESCE(ds.discovery_run_count,1)<=1" if value=='first' else "COALESCE(ds.discovery_run_count,1)>1"),[]
+            if field=='geo':
+                country=str(cond.get('country') or '').upper(); resolved="COALESCE(NULLIF(c.country_resolved,''),NULLIF(r.country_resolved,''),NULLIF(c.country_api,''),'')"
+                if country:return f"{resolved}=?",[country]
+                codes=sorted(group_codes(value))
+                if not codes:return "0=1",[]
+                return f"{resolved} IN ({','.join('?' for _ in codes)})",codes
+            return "1=1",[]
+        conds=[c for c in (conditions or []) if c.get('field') and c.get('value')]
+        if conds:
+            e,p=expr(conds[0]); group=f"({e})"; params.extend(p)
+            for cnd in conds[1:]:
+                e,p=expr(cnd); join=str(cnd.get('join') or 'AND').upper()
+                group=f"({group} OR ({e}))" if join=='OR' else f"({group} AND NOT ({e}))" if join=='NOT' else f"({group} AND ({e}))"; params.extend(p)
+            where.append(group)
+        w=' AND '.join(where) if where else '1=1'
+        sortmap={'score':'r.best_discovery_score','found':'r.found_at','subs':'COALESCE(c.subscriber_count,r.subscribers)','views':'r.best_video_views','coverage':'r.query_coverage','hits':'r.hit_video_count','title':'r.channel_title','repeat':'COALESCE(ds.discovery_run_count,1)'}
+        order=sortmap.get(sort,'r.best_discovery_score'); d='ASC' if str(direction).lower()=='asc' else 'DESC'
+        with connect(self.db_path) as conn:
+            base="FROM discovery_creator_results r JOIN discovery_runs dr ON dr.run_id=r.run_id LEFT JOIN creators c ON c.channel_id=r.channel_id LEFT JOIN creator_workflow wf ON wf.channel_id=r.channel_id LEFT JOIN creator_discovery_summary ds ON ds.channel_id=r.channel_id"
+            total=conn.execute(f"SELECT COUNT(*) {base} WHERE {w}",tuple(params)).fetchone()[0]
+            pages=max(1,(int(total)+page_size-1)//page_size); page=min(page,pages); offset=(page-1)*page_size
+            rows=conn.execute(f"""SELECT r.*,dr.base_query,dr.base_query_source,dr.search_source,dr.query_language,dr.status AS run_status,c.channel_id AS library_channel_id,c.country_api,c.country_resolved AS library_country,c.subscriber_count AS library_subscribers,COALESCE(wf.status,'unreviewed') workflow_status,wf.note workflow_note,ds.first_seen_at,ds.last_seen_at,COALESCE(ds.discovery_run_count,1) discovery_run_count,COALESCE(ds.hit_video_count_total,r.hit_video_count) hit_video_count_total,ds.last_base_query {base} WHERE {w} ORDER BY {order} {d},r.found_at DESC,r.id DESC LIMIT ? OFFSET ?""",tuple(params+[page_size,offset])).fetchall()
+        out=[]
+        for rr in rows:
+            x=dict(rr); x['matched_queries']=json_load(x.pop('matched_queries_json'),[]); x['keyword_source_label']=KEYWORD_SOURCE_LABELS.get(x.get('base_query_source') or 'exact', x.get('base_query_source') or '精确记录');x['workflow_label']=self._workflow_label(x.get('workflow_status'));x['discovery_freshness']='first' if int(x.get('discovery_run_count') or 1)<=1 else 'repeat';out.append(x)
+        return {'rows':out,'total':int(total),'page':page,'page_size':page_size,'pages':pages}
+
+    def discovery_creator_ids(self, *, search: str = "", conditions: list[dict[str,Any]] | None = None) -> dict[str,Any]:
+        """Return unique creator ids across every page of the current saved-discovery filter."""
+        ids=[];seen=set();page=1
+        while True:
+            x=self.discovery_creator_history(page=page,page_size=5000,search=search,conditions=conditions or [],sort="score",direction="desc")
+            for r in x.get("rows") or []:
+                cid=str(r.get("channel_id") or "").strip()
+                if cid and cid not in seen:seen.add(cid);ids.append(cid)
+            if page>=int(x.get("pages") or 1):break
+            page+=1
+        return {"channel_ids":ids,"count":len(ids)}
+
     def discovery_history(self, *, page:int=1, page_size:int=30, search:str="", conditions:list[dict[str,Any]]|None=None, sort:str="score", direction:str="desc") -> dict[str,Any]:
         page=max(1,int(page or 1));page_size=max(1,min(5000,int(page_size or 30)))
         where=[];params:list[Any]=[]
         if search:
             q=f"%{search.lower()}%";where.append("(lower(COALESCE(d.query,'')) LIKE ? OR lower(COALESCE(d.channel_title,'')) LIKE ? OR lower(COALESCE(d.title,'')) LIKE ? OR lower(COALESCE(d.country_resolved,'')) LIKE ? OR lower(COALESCE(d.channel_id,'')) LIKE ?)");params.extend([q,q,q,q,q])
         def expr(cond:dict[str,Any]):
-            field=str(cond.get('field') or '')
-            value=str(cond.get('value') or '')
-            if field=='status':
-                return ("c.channel_id IS NOT NULL" if value=='library' else "c.channel_id IS NULL"),[]
-            if field=='tier': return "COALESCE(d.opportunity_tier,'')=?",[value]
-            if field=='country': return "COALESCE(NULLIF(c.country_resolved,''),NULLIF(d.country_resolved,''),NULLIF(c.country_api,''),'')=?",[value.upper()]
+            field=str(cond.get('field') or '');value=str(cond.get('value') or '')
+            if field=='status':return ("c.channel_id IS NOT NULL" if value=='library' else "c.channel_id IS NULL"),[]
+            if field=='tier':return "COALESCE(d.opportunity_tier,'')=?",[value]
+            if field=='workflow':return "COALESCE(wf.status,'unreviewed')=?",[value]
+            if field=='freshness':return ("COALESCE(ds.discovery_run_count,1)<=1" if value=='first' else "COALESCE(ds.discovery_run_count,1)>1"),[]
+            if field=='country':return "COALESCE(NULLIF(c.country_resolved,''),NULLIF(d.country_resolved,''),NULLIF(c.country_api,''),'')=?",[value.upper()]
             if field=='geo':
-                country=str(cond.get('country') or '').upper()
-                resolved="COALESCE(NULLIF(c.country_resolved,''),NULLIF(d.country_resolved,''),NULLIF(c.country_api,''),'')"
+                country=str(cond.get('country') or '').upper();resolved="COALESCE(NULLIF(c.country_resolved,''),NULLIF(d.country_resolved,''),NULLIF(c.country_api,''),'')"
                 if country:return f"{resolved}=?",[country]
                 codes=sorted(group_codes(value))
                 if not codes:return "0=1",[]
@@ -916,21 +1100,20 @@ class CreatorHub:
         if conds:
             e,p=expr(conds[0]);group=f"({e})";params.extend(p)
             for c in conds[1:]:
-                e,p=expr(c);join=str(c.get('join') or 'AND').upper()
-                if join=='OR':group=f"({group} OR ({e}))"
-                elif join=='NOT':group=f"({group} AND NOT ({e}))"
-                else:group=f"({group} AND ({e}))"
-                params.extend(p)
+                e,p=expr(c);join=str(c.get('join') or 'AND').upper();group=f"({group} OR ({e}))" if join=='OR' else f"({group} AND NOT ({e}))" if join=='NOT' else f"({group} AND ({e}))";params.extend(p)
             where.append(group)
         w=' AND '.join(where) if where else '1=1'
-        sortmap={'score':'d.pre_score','found':'d.found_at','subs':'COALESCE(c.subscriber_count,d.subscribers)','views':'d.views','title':'d.channel_title'}
+        sortmap={'score':'d.pre_score','found':'d.found_at','subs':'COALESCE(c.subscriber_count,d.subscribers)','views':'d.views','title':'d.channel_title','repeat':'COALESCE(ds.discovery_run_count,1)'}
         order=sortmap.get(sort,'d.pre_score');d='ASC' if str(direction).lower()=='asc' else 'DESC'
         with connect(self.db_path) as conn:
-            base="FROM discovery_hits d LEFT JOIN creators c ON c.channel_id=d.channel_id"
+            base="FROM discovery_hits d LEFT JOIN creators c ON c.channel_id=d.channel_id LEFT JOIN creator_workflow wf ON wf.channel_id=d.channel_id LEFT JOIN creator_discovery_summary ds ON ds.channel_id=d.channel_id"
             total=conn.execute(f"SELECT COUNT(*) {base} WHERE {w}",tuple(params)).fetchone()[0]
             pages=max(1,(int(total)+page_size-1)//page_size);page=min(page,pages);offset=(page-1)*page_size
-            rows=conn.execute(f"""SELECT d.*,c.channel_id AS library_channel_id,c.country_api,c.country_resolved AS library_country,c.subscriber_count AS library_subscribers {base} WHERE {w} ORDER BY {order} {d},d.found_at DESC,d.id DESC LIMIT ? OFFSET ?""",tuple(params+[page_size,offset])).fetchall()
-        return {'rows':[dict(r) for r in rows],'total':int(total),'page':page,'page_size':page_size,'pages':pages}
+            rows=conn.execute(f"""SELECT d.*,c.channel_id AS library_channel_id,c.country_api,c.country_resolved AS library_country,c.subscriber_count AS library_subscribers,COALESCE(wf.status,'unreviewed') workflow_status,COALESCE(ds.discovery_run_count,1) discovery_run_count,ds.first_seen_at,ds.last_seen_at {base} WHERE {w} ORDER BY {order} {d},d.found_at DESC,d.id DESC LIMIT ? OFFSET ?""",tuple(params+[page_size,offset])).fetchall()
+        out=[]
+        for r in rows:
+            x=dict(r);x['workflow_label']=self._workflow_label(x.get('workflow_status'));x['discovery_freshness']='first' if int(x.get('discovery_run_count') or 1)<=1 else 'repeat';out.append(x)
+        return {'rows':out,'total':int(total),'page':page,'page_size':page_size,'pages':pages}
 
     def evaluate_metric_spec(self, spec:dict[str,Any]) -> dict[str,Any]:
         """Evaluate an exact-date VIDEO aggregation from SQLite.
@@ -999,6 +1182,7 @@ class CreatorHub:
             )
             conn.execute("INSERT INTO video_label_audit(video_id,old_value_json,new_value_json,actor,changed_at) VALUES(?,?,?,?,?)",
                          (video_id, old_json, json_dump(new_obj), actor, at))
+            conn.execute("UPDATE creators SET classification_data_at=? WHERE channel_id=(SELECT channel_id FROM videos WHERE video_id=?)",(at,video_id))
             conn.commit()
         return new_obj
 
@@ -1033,6 +1217,298 @@ class CreatorHub:
                     conn.execute("UPDATE creators SET monitoring_enabled=? WHERE channel_id=?", (int(enabled), cid))
                 conn.commit()
         return cid
+
+    # ---------- workflow / batch / maintenance ----------
+    WORKFLOW_STATUSES = {"unreviewed","interested","to_contact","added","defer","excluded"}
+
+    @staticmethod
+    def _workflow_label(status: str | None) -> str:
+        return {"unreviewed":"未处理","interested":"感兴趣","to_contact":"待联系","added":"已入库","defer":"暂不考虑","excluded":"永久排除"}.get(status or "unreviewed",status or "未处理")
+
+    def set_creator_workflow(self, channel_id: str, status: str, *, note: str = "", actor: str = "dashboard") -> dict[str, Any]:
+        cid=str(channel_id or "").strip()
+        if not cid: raise ValueError("channel_id required")
+        if status not in self.WORKFLOW_STATUSES: raise ValueError("unsupported workflow status")
+        at=now_utc()
+        with connect(self.db_path) as conn:
+            old=conn.execute("SELECT status,note FROM creator_workflow WHERE channel_id=?",(cid,)).fetchone()
+            conn.execute("INSERT INTO creator_workflow(channel_id,status,note,updated_by,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(channel_id) DO UPDATE SET status=excluded.status,note=excluded.note,updated_by=excluded.updated_by,updated_at=excluded.updated_at",(cid,status,note,actor,at))
+            conn.execute("INSERT INTO creator_workflow_audit(channel_id,old_status,new_status,note,actor,changed_at) VALUES(?,?,?,?,?,?)",(cid,old["status"] if old else None,status,note,actor,at))
+            conn.commit()
+        return {"channel_id":cid,"status":status,"status_label":self._workflow_label(status),"note":note,"updated_at":at}
+
+    def creator_workflow_map(self, channel_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+        ids=list(dict.fromkeys(str(x) for x in channel_ids if x))
+        if not ids:return {}
+        out={}
+        with connect(self.db_path) as conn:
+            for batch in chunks(ids,500):
+                marks=','.join('?' for _ in batch)
+                rows=conn.execute(f"SELECT * FROM creator_workflow WHERE channel_id IN ({marks})",tuple(batch)).fetchall()
+                for r in rows:
+                    x=dict(r);x["status_label"]=self._workflow_label(x.get("status"));out[x["channel_id"]]=x
+        return out
+
+    def batch_creators(self, channel_ids: list[str], action: str, *, value: str = "", actor: str = "dashboard") -> dict[str, Any]:
+        ids=list(dict.fromkeys(str(x).strip() for x in channel_ids if str(x).strip()))
+        if not ids:return {"processed":0,"errors":[]}
+        errors=[];done=0
+        for cid in ids:
+            try:
+                if action=="workflow": self.set_creator_workflow(cid,value or "unreviewed",actor=actor)
+                elif action=="add": self.ensure_creator(cid,monitoring=True,source="batch_add")
+                elif action in {"monitor_on","monitor_off"}:
+                    with connect(self.db_path) as conn:
+                        conn.execute("UPDATE creators SET monitoring_enabled=? WHERE channel_id=?",(1 if action=="monitor_on" else 0,cid));conn.commit()
+                elif action=="priority":
+                    if value not in {"high","normal","low","archive"}:raise ValueError("invalid priority")
+                    with connect(self.db_path) as conn:
+                        conn.execute("UPDATE creators SET priority=? WHERE channel_id=?",(value,cid));conn.commit()
+                elif action=="tag":
+                    if not value.strip():raise ValueError("tag required")
+                    with connect(self.db_path) as conn:
+                        conn.execute("INSERT OR IGNORE INTO creator_tags(channel_id,tag,created_by,created_at) VALUES(?,?,?,?)",(cid,value.strip(),actor,now_utc()));conn.commit()
+                elif action=="contact":
+                    self.scrape_contact(cid)
+                elif action=="resume_sync":
+                    with connect(self.db_path) as conn:
+                        conn.execute("UPDATE creators SET sync_suspended=0,consecutive_sync_failures=0,next_retry_at=NULL,last_sync_error=NULL,sync_error_type=NULL WHERE channel_id=?",(cid,));conn.commit()
+                else: raise ValueError("unsupported creator batch action")
+                done+=1
+            except Exception as e: errors.append(f"{cid}: {type(e).__name__}: {e}")
+        return {"processed":done,"requested":len(ids),"errors":errors}
+
+    def classification_matching_ids(self, *, search: str = "", conditions: list[dict[str,Any]] | None = None, exclude_ids: list[str] | None = None) -> list[str]:
+        """Resolve all video ids matching the current classification filter without browser-side enumeration."""
+        where=["1=1"]; params:list[Any]=[]
+        if search:
+            q=f"%{search.lower()}%";where.append("(lower(COALESCE(v.title,'')) LIKE ? OR lower(COALESCE(c.channel_title,'')) LIKE ? OR lower(v.video_id) LIKE ?)");params.extend([q,q,q])
+        def cexpr(cond:dict[str,Any]):
+            field=str(cond.get("field") or "");value=str(cond.get("value") or "")
+            if field=="role":return "COALESCE(l.human_role,s.suggested_role,'pending')=?",[value]
+            if field=="system_role":return "COALESCE(s.suggested_role,'pending')=?",[value]
+            if field=="brand":return "instr(lower(COALESCE(l.brands_json,s.brands_json,'')),?)>0",[value.lower()]
+            if field=="review_status":
+                if value=="pending_review":return "(l.video_id IS NULL AND (COALESCE(s.suggested_role,'pending')='pending' OR s.confidence='review'))",[]
+                if value=="manual_reviewed":return "l.video_id IS NOT NULL",[]
+                if value=="not_manual_reviewed":return "l.video_id IS NULL",[]
+                if value=="system_only":return "(l.video_id IS NULL AND s.video_id IS NOT NULL AND COALESCE(s.suggested_role,'pending')<>'pending' AND COALESCE(s.confidence,'')<>'review')",[]
+                return "1=1",[]
+            if field=="confidence":return "COALESCE(s.confidence,'low')=?",[value]
+            op=str(cond.get("op") or "gte").lower();sql_op={"gte":">=","gt":">","lte":"<=","lt":"<","eq":"=","neq":"<>"}.get(op,">=")
+            if field=="views":return f"COALESCE(v.current_views,0) {sql_op} ?",[float(value)]
+            if field=="likes":return f"COALESCE(v.current_likes,0) {sql_op} ?",[float(value)]
+            if field=="comments":return f"COALESCE(v.current_comments,0) {sql_op} ?",[float(value)]
+            if field=="duration":return f"COALESCE(v.duration_seconds,0) {sql_op} ?",[float(value)]
+            if field=="published":return f"substr(COALESCE(v.published_at,''),1,10) {sql_op} ?",[value[:10]]
+            return "1=1",[]
+        conds=[c for c in (conditions or []) if c.get("field") and c.get("value") not in (None,"")]
+        if conds:
+            e,p=cexpr(conds[0]);group=f"({e})";params.extend(p)
+            for c in conds[1:]:
+                e,p=cexpr(c);join=str(c.get("join") or "AND").upper();group=f"({group} OR ({e}))" if join=="OR" else f"({group} AND NOT ({e}))" if join=="NOT" else f"({group} AND ({e}))";params.extend(p)
+            where.append(group)
+        base="FROM videos v LEFT JOIN label_suggestions s ON s.video_id=v.video_id JOIN creators c ON c.channel_id=v.channel_id LEFT JOIN video_labels l ON l.video_id=v.video_id"
+        with connect(self.db_path) as conn:
+            rows=conn.execute(f"SELECT v.video_id {base} WHERE {' AND '.join(where)} ORDER BY v.video_id",tuple(params)).fetchall()
+        excluded={str(x) for x in (exclude_ids or []) if x}
+        return [str(r[0]) for r in rows if str(r[0]) not in excluded]
+
+    def batch_review_matching(self, selection: dict[str,Any], action: str, *, role: str = "", brands: list[str] | None = None, actor: str = "dashboard-batch") -> dict[str,Any]:
+        ids=self.classification_matching_ids(search=str(selection.get("search") or ""),conditions=list(selection.get("conditions") or []),exclude_ids=list(selection.get("exclude_ids") or []))
+        return self.batch_review(ids,action,role=role,brands=brands,actor=actor)
+
+    def batch_review(self, video_ids: list[str], action: str, *, role: str = "", brands: list[str] | None = None, actor: str = "dashboard-batch") -> dict[str, Any]:
+        ids=list(dict.fromkeys(str(x).strip() for x in video_ids if str(x).strip()));done=0;errors=[]
+        if action not in {"confirm_system","set_role","clear"}:raise ValueError("unsupported review batch action")
+        if action=="set_role" and role not in {"ugphone","competitor","daily","multi_brand","other_cloud_phone","pending"}:raise ValueError("invalid role")
+        at=now_utc();use_brands=list(brands or [])
+        with connect(self.db_path) as conn:
+            for batch in chunks(ids,400):
+                marks=','.join('?' for _ in batch)
+                rows=conn.execute(f"""SELECT v.video_id,v.channel_id,s.suggested_role,s.brands_json AS system_brands_json,
+                    l.video_id AS old_video_id,l.human_role AS old_human_role,l.brands_json AS old_brands_json,l.labeled_by AS old_labeled_by,l.note AS old_note,l.labeled_at AS old_labeled_at
+                    FROM videos v LEFT JOIN label_suggestions s ON s.video_id=v.video_id LEFT JOIN video_labels l ON l.video_id=v.video_id
+                    WHERE v.video_id IN ({marks})""",tuple(batch)).fetchall()
+                by={str(r["video_id"]):r for r in rows}
+                touched=set()
+                for vid in batch:
+                    r=by.get(vid)
+                    if not r:
+                        errors.append(f"{vid}: ValueError: 数据库中不存在视频");continue
+                    try:
+                        if action=="clear":
+                            if r["old_video_id"]:
+                                old_obj={"video_id":vid,"human_role":r["old_human_role"],"brands_json":r["old_brands_json"],"labeled_by":r["old_labeled_by"],"note":r["old_note"],"labeled_at":r["old_labeled_at"]}
+                                conn.execute("INSERT INTO video_label_audit(video_id,old_value_json,new_value_json,actor,changed_at) VALUES(?,?,?,?,?)",(vid,json_dump(old_obj),None,actor,at))
+                                conn.execute("DELETE FROM video_labels WHERE video_id=?",(vid,))
+                            done+=1;touched.add(str(r["channel_id"]));continue
+                        if not r["suggested_role"]:raise ValueError(f"视频 {vid} 没有系统分类")
+                        if action=="confirm_system":
+                            use_role=str(r["suggested_role"]);bs=json_load(r["system_brands_json"],[]);note="人工复核确认系统分类"
+                        else:
+                            use_role=role or str(r["suggested_role"]);bs=use_brands;note="人工复核修正系统分类"
+                        old_obj=None
+                        if r["old_video_id"]:old_obj={"video_id":vid,"human_role":r["old_human_role"],"brands_json":r["old_brands_json"],"labeled_by":r["old_labeled_by"],"note":r["old_note"],"labeled_at":r["old_labeled_at"]}
+                        new_obj={"video_id":vid,"human_role":use_role,"brands":bs,"labeled_by":actor,"note":note,"labeled_at":at}
+                        conn.execute("INSERT INTO video_labels(video_id,human_role,brands_json,labeled_by,note,labeled_at) VALUES(?,?,?,?,?,?) ON CONFLICT(video_id) DO UPDATE SET human_role=excluded.human_role,brands_json=excluded.brands_json,labeled_by=excluded.labeled_by,note=excluded.note,labeled_at=excluded.labeled_at",(vid,use_role,json_dump(bs),actor,note,at))
+                        conn.execute("INSERT INTO video_label_audit(video_id,old_value_json,new_value_json,actor,changed_at) VALUES(?,?,?,?,?)",(vid,json_dump(old_obj) if old_obj else None,json_dump(new_obj),actor,at))
+                        done+=1;touched.add(str(r["channel_id"]))
+                    except Exception as e:errors.append(f"{vid}: {type(e).__name__}: {e}")
+                if touched:
+                    cm=','.join('?' for _ in touched);conn.execute(f"UPDATE creators SET classification_data_at=? WHERE channel_id IN ({cm})",tuple([at]+sorted(touched)))
+            conn.commit()
+        return {"processed":done,"requested":len(ids),"errors":errors}
+
+    def _backup_dir(self) -> Path:
+        p=Path(self.db_path).resolve()
+        root=p.parent.parent if p.parent.name.lower()=="data" else p.parent
+        d=root/"backups";d.mkdir(parents=True,exist_ok=True);return d
+
+    def list_backups(self) -> list[dict[str, Any]]:
+        d=self._backup_dir();out=[]
+        for f in sorted(d.glob("*.sqlite"),key=lambda x:x.stat().st_mtime,reverse=True):
+            out.append({"name":f.name,"path":str(f),"size_bytes":f.stat().st_size,"modified_at":datetime.fromtimestamp(f.stat().st_mtime,timezone.utc).isoformat().replace('+00:00','Z')})
+        return out
+
+    def database_health(self, *, full: bool = False, run_check: bool = True) -> dict[str, Any]:
+        p=Path(self.db_path);wal=Path(str(p)+"-wal");shm=Path(str(p)+"-shm")
+        with connect(self.db_path) as conn:
+            check=conn.execute("PRAGMA integrity_check" if full else "PRAGMA quick_check").fetchone()[0] if run_check else "not_run"
+            page_count=int(conn.execute("PRAGMA page_count").fetchone()[0]);page_size=int(conn.execute("PRAGMA page_size").fetchone()[0]);free=int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+            journal=conn.execute("PRAGMA journal_mode").fetchone()[0]
+            counts={t:int(conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]) for t in ["creators","videos","video_snapshots","creator_snapshots","discovery_hits","sync_runs"]}
+            last_write=conn.execute("SELECT MAX(x) FROM (SELECT MAX(COALESCE(last_sync_attempt_at,last_synced_at,created_at)) x FROM creators UNION ALL SELECT MAX(captured_at) FROM video_snapshots UNION ALL SELECT MAX(found_at) FROM discovery_hits)").fetchone()[0]
+        return {"ok":(str(check).lower()=="ok" if run_check else None),"check":check,"db_path":str(p.resolve()),"db_size_bytes":p.stat().st_size if p.exists() else 0,"wal_size_bytes":wal.stat().st_size if wal.exists() else 0,"shm_size_bytes":shm.stat().st_size if shm.exists() else 0,"page_count":page_count,"page_size":page_size,"freelist_pages":free,"estimated_free_bytes":free*page_size,"journal_mode":journal,"counts":counts,"last_write_at":last_write,"backups":self.list_backups()[:20]}
+
+    def backup_database(self, *, note: str = "manual", destination: str | Path | None = None) -> dict[str, Any]:
+        dest=Path(destination) if destination else self._backup_dir()/f"creator_hub_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sqlite"
+        dest=dest.resolve();dest.parent.mkdir(parents=True,exist_ok=True)
+        if dest==Path(self.db_path).resolve():raise ValueError("backup destination cannot be the live database")
+        started=now_utc()
+        with connect(self.db_path) as conn:
+            rid=conn.execute("INSERT INTO maintenance_runs(kind,started_at,status,message) VALUES('backup',?,'running',?)",(started,note)).lastrowid;conn.commit()
+        try:
+            src=sqlite3.connect(self.db_path);dst=sqlite3.connect(dest)
+            try: src.backup(dst);dst.commit();check=dst.execute("PRAGMA quick_check").fetchone()[0]
+            finally: dst.close();src.close()
+            if str(check).lower()!='ok':raise RuntimeError(f"backup quick_check failed: {check}")
+            size=dest.stat().st_size
+            with connect(self.db_path) as conn:
+                conn.execute("INSERT OR REPLACE INTO backup_registry(file_path,created_at,size_bytes,quick_check,source_db,note) VALUES(?,?,?,?,?,?)",(str(dest),now_utc(),size,str(check),str(Path(self.db_path).resolve()),note))
+                conn.execute("UPDATE maintenance_runs SET finished_at=?,status='complete',message=? WHERE id=?",(now_utc(),f"{dest.name}; {size} bytes",rid));conn.commit()
+            return {"ok":True,"path":str(dest),"name":dest.name,"size_bytes":size,"quick_check":check}
+        except Exception as e:
+            with connect(self.db_path) as conn:
+                conn.execute("UPDATE maintenance_runs SET finished_at=?,status='failed',message=? WHERE id=?",(now_utc(),f"{type(e).__name__}: {e}",rid));conn.commit()
+            raise
+
+    def restore_database(self, backup_path: str | Path, *, create_pre_backup: bool = True) -> dict[str, Any]:
+        src_path=Path(backup_path)
+        if not src_path.is_absolute(): src_path=self._backup_dir()/src_path
+        src_path=src_path.resolve()
+        if not src_path.exists():raise FileNotFoundError(src_path)
+        probe=sqlite3.connect(src_path)
+        try: check=probe.execute("PRAGMA quick_check").fetchone()[0]
+        finally: probe.close()
+        if str(check).lower()!='ok':raise RuntimeError(f"backup quick_check failed: {check}")
+        pre=None
+        if create_pre_backup: pre=self.backup_database(note="pre_restore")
+        source=sqlite3.connect(src_path);target=sqlite3.connect(self.db_path)
+        try: source.backup(target);target.commit()
+        finally: target.close();source.close()
+        init_db(self.db_path)
+        # Restored DB may not know about the pre-restore safety backup; register it again.
+        if pre:
+            with connect(self.db_path) as conn:
+                conn.execute("INSERT OR REPLACE INTO backup_registry(file_path,created_at,size_bytes,quick_check,source_db,note) VALUES(?,?,?,?,?,?)",(pre["path"],now_utc(),pre["size_bytes"],pre["quick_check"],str(Path(self.db_path).resolve()),"pre_restore"));conn.commit()
+        return {"ok":True,"restored_from":str(src_path),"pre_restore_backup":pre,"health":self.database_health()}
+
+    def _snapshot_compaction_candidates(self, conn: sqlite3.Connection, table: str, entity: str) -> int:
+        return int(conn.execute(f"""WITH aged AS (SELECT id,{entity} entity,captured_at,CASE WHEN datetime(captured_at)>=datetime('now','-30 days') THEN NULL WHEN datetime(captured_at)>=datetime('now','-180 days') THEN 'D:'||date(captured_at) WHEN datetime(captured_at)>=datetime('now','-730 days') THEN 'W:'||strftime('%Y-%W',captured_at) ELSE 'M:'||strftime('%Y-%m',captured_at) END bucket FROM {table}), ranked AS (SELECT id,ROW_NUMBER() OVER(PARTITION BY entity,bucket ORDER BY datetime(captured_at) DESC,id DESC) rn FROM aged WHERE bucket IS NOT NULL) SELECT COUNT(*) FROM ranked WHERE rn>1""").fetchone()[0])
+
+    def compact_snapshots(self, *, dry_run: bool = False, auto: bool = False) -> dict[str, Any]:
+        if auto:
+            with connect(self.db_path) as conn:
+                row=conn.execute("SELECT value FROM meta WHERE key='last_snapshot_compaction_at'").fetchone()
+            last=parse_iso(row[0]) if row else None;now=parse_iso(now_utc())
+            if last and now and (now-last).total_seconds()<7*86400:return {"ok":True,"skipped":True,"reason":"last compaction < 7 days"}
+        started=now_utc()
+        with connect(self.db_path) as conn:
+            video_candidates=self._snapshot_compaction_candidates(conn,"video_snapshots","video_id")
+            creator_candidates=self._snapshot_compaction_candidates(conn,"creator_snapshots","channel_id")
+            if dry_run:return {"ok":True,"dry_run":True,"video_snapshots_to_delete":video_candidates,"creator_snapshots_to_delete":creator_candidates,"total_to_delete":video_candidates+creator_candidates}
+            rid=conn.execute("INSERT INTO maintenance_runs(kind,started_at,status,message) VALUES('snapshot_compaction',?,'running',?)",(started,f"video={video_candidates}; creator={creator_candidates}")).lastrowid
+            for table,entity in (("video_snapshots","video_id"),("creator_snapshots","channel_id")):
+                conn.execute(f"""WITH aged AS (SELECT id,{entity} entity,captured_at,CASE WHEN datetime(captured_at)>=datetime('now','-30 days') THEN NULL WHEN datetime(captured_at)>=datetime('now','-180 days') THEN 'D:'||date(captured_at) WHEN datetime(captured_at)>=datetime('now','-730 days') THEN 'W:'||strftime('%Y-%W',captured_at) ELSE 'M:'||strftime('%Y-%m',captured_at) END bucket FROM {table}), ranked AS (SELECT id,ROW_NUMBER() OVER(PARTITION BY entity,bucket ORDER BY datetime(captured_at) DESC,id DESC) rn FROM aged WHERE bucket IS NOT NULL) DELETE FROM {table} WHERE id IN (SELECT id FROM ranked WHERE rn>1)""")
+            affected=video_candidates+creator_candidates
+            conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('last_snapshot_compaction_at',?)",(now_utc(),))
+            conn.execute("UPDATE maintenance_runs SET finished_at=?,status='complete',affected_rows=?,message=? WHERE id=?",(now_utc(),affected,f"deleted={affected}",rid));conn.commit()
+            try: conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception: pass
+        return {"ok":True,"dry_run":False,"video_snapshots_deleted":video_candidates,"creator_snapshots_deleted":creator_candidates,"total_deleted":video_candidates+creator_candidates}
+
+    @staticmethod
+    def _sync_error_category(exc: Exception) -> str:
+        msg=f"{type(exc).__name__}: {exc}".lower();reason=str(getattr(exc,"reason","") or "").lower()
+        if isinstance(exc,QuotaBudgetExceeded) or reason in {"quotaexceeded","dailylimitexceeded"} or "quota" in msg or "budget" in msg:return "quota"
+        if any(x in msg for x in ["api key","keyinvalid","forbidden","unauthorized","401","403"]):return "auth"
+        if any(x in msg for x in ["timed out","timeout","temporary failure","connection","network","urlerror"]):return "network"
+        if any(x in msg for x in ["not found","404","channel not found","未找到频道"]):return "channel_unavailable"
+        if isinstance(exc,YouTubeAPIError):return "youtube_api"
+        return "unknown"
+
+    def _record_sync_success(self, cid: str, *, mode: str, attempt_id: int | None, videos: int, priority: str) -> None:
+        at=now_utc();cur=parse_iso(at);hours=self._sync_due_hours(priority,mode);nxt=(cur+timedelta(hours=hours)).isoformat().replace('+00:00','Z') if cur else None
+        with connect(self.db_path) as conn:
+            conn.execute("UPDATE creators SET last_synced_at=?,last_sync_attempt_at=?,last_sync_status='complete',last_sync_error=NULL,sync_error_type=NULL,consecutive_sync_failures=0,next_retry_at=NULL,next_sync_at=?,sync_suspended=0 WHERE channel_id=?",(at,at,nxt,cid))
+            if attempt_id:conn.execute("UPDATE creator_sync_attempts SET finished_at=?,status='complete',videos_processed=? WHERE id=?",(at,int(videos),attempt_id))
+            conn.commit()
+
+    def _record_sync_failure(self, cid: str, *, mode: str, attempt_id: int | None, exc: Exception) -> dict[str, Any]:
+        at=now_utc();cat=self._sync_error_category(exc);msg=f"{type(exc).__name__}: {exc}"[:3000]
+        with connect(self.db_path) as conn:
+            row=conn.execute("SELECT consecutive_sync_failures FROM creators WHERE channel_id=?",(cid,)).fetchone();fail=int(row[0] or 0)+1 if row else 1
+            suspend=1 if fail>=5 and cat not in {"quota","auth"} else 0
+            delays={1:1,2:6,3:24,4:48};delay=delays.get(fail,72)
+            if cat=="quota":delay=6
+            if cat=="auth":delay=24
+            cur=parse_iso(at);retry=(cur+timedelta(hours=delay)).isoformat().replace('+00:00','Z') if cur and not suspend else None
+            conn.execute("UPDATE creators SET last_sync_attempt_at=?,last_sync_status='failed',last_sync_error=?,sync_error_type=?,consecutive_sync_failures=?,next_retry_at=?,sync_suspended=? WHERE channel_id=?",(at,msg,cat,fail,retry,suspend,cid))
+            if attempt_id:conn.execute("UPDATE creator_sync_attempts SET finished_at=?,status='failed',error_type=?,error_message=? WHERE id=?",(at,cat,msg,attempt_id))
+            conn.commit()
+        return {"error_type":cat,"failures":fail,"next_retry_at":retry,"sync_suspended":bool(suspend)}
+
+    def monitoring_health(self, *, page: int = 1, page_size: int = 30, limit: int | None = None) -> dict[str, Any]:
+        if limit is not None: page_size=int(limit)
+        page=max(1,int(page or 1)); page_size=max(1,min(5000,int(page_size or 30)))
+        now=parse_iso(now_utc());rows=[];counts={"normal":0,"due":0,"failed":0,"suspended":0,"stale":0,"retry_wait":0}
+        with connect(self.db_path) as conn:
+            data=[dict(r) for r in conn.execute("SELECT channel_id,channel_title,priority,monitoring_enabled,last_synced_at,last_sync_attempt_at,last_sync_status,last_sync_error,sync_error_type,consecutive_sync_failures,next_sync_at,next_retry_at,sync_suspended,channel_data_at,video_metrics_at,classification_data_at,contact_scraped_at FROM creators WHERE monitoring_enabled=1 ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,COALESCE(last_synced_at,'')").fetchall()]
+        for r in data:
+            last=parse_iso(r.get("last_synced_at"));hours=self._sync_due_hours(r.get("priority") or "normal","incremental");age=(now-last).total_seconds()/3600 if now and last else None
+            retry=parse_iso(r.get("next_retry_at"));due=not last or (age is not None and age>=hours);stale=not last or (age is not None and age>hours+6)
+            if r.get("sync_suspended"):state="suspended"
+            elif r.get("last_sync_status")=="failed" and retry and now and retry>now:state="retry_wait"
+            elif r.get("last_sync_status")=="failed":state="failed"
+            elif stale:state="stale"
+            elif due:state="due"
+            else:state="normal"
+            counts[state]=counts.get(state,0)+1;r["health_state"]=state;r["due_hours"]=hours;r["age_hours"]=round(age,1) if age is not None else None
+            rows.append(r)
+        priority_order={"suspended":0,"failed":1,"retry_wait":2,"stale":3,"due":4,"normal":5};rows.sort(key=lambda x:(priority_order.get(x["health_state"],9),-(x.get("consecutive_sync_failures") or 0),x.get("last_synced_at") or ""))
+        total=len(rows); pages=max(1,(total+page_size-1)//page_size); page=min(page,pages); start=(page-1)*page_size
+        return {"counts":counts,"total":total,"rows":rows[start:start+page_size],"page":page,"page_size":page_size,"pages":pages,"generated_at":now_utc()}
+
+    def data_freshness(self, channel_id: str) -> dict[str, Any]:
+        with connect(self.db_path) as conn:
+            r=conn.execute("SELECT channel_id,channel_data_at,video_metrics_at,classification_data_at,contact_scraped_at,last_synced_at FROM creators WHERE channel_id=?",(channel_id,)).fetchone()
+            disc=conn.execute("SELECT last_seen_at FROM creator_discovery_summary WHERE channel_id=?",(channel_id,)).fetchone()
+        if not r:return {}
+        def item(at):
+            d=parse_iso(at);n=parse_iso(now_utc());age=(n-d).total_seconds()/3600 if d and n else None
+            return {"at":at,"age_hours":round(age,1) if age is not None else None}
+        return {"channel":item(r["channel_data_at"]),"video_metrics":item(r["video_metrics_at"]),"classification":item(r["classification_data_at"]),"contact":item(r["contact_scraped_at"]),"sync":item(r["last_synced_at"]),"discovery":item(disc["last_seen_at"] if disc else None)}
 
     # ---------- query helpers ----------
     def status(self) -> dict[str, Any]:

@@ -16,7 +16,7 @@ from creator_hub.dashboard import build_dashboard
 from creator_hub.db import init_db
 from creator_hub.exporter import export_all
 from creator_hub.importers import import_v2
-from creator_hub.metric_config import import_metric_config, export_metric_config
+from creator_hub.metric_config import import_metric_config, export_metric_config, validate_metric_config
 from creator_hub.server import serve_dashboard
 from creator_hub.service import CreatorHub
 from creator_hub.youtube_api import read_api_key
@@ -42,7 +42,7 @@ def main():
     sub=ap.add_subparsers(dest="cmd",required=True)
 
     p=sub.add_parser("init",help="initialize SQLite without API calls"); common(p)
-    p=sub.add_parser("doctor",help="environment and database checks"); common(p)
+    p=sub.add_parser("doctor",help="environment, dependency, database and API checks"); common(p); p.add_argument("--online",action="store_true",help="validate the API key with one low-cost videos.list request")
 
     p=sub.add_parser("discover",help="discover creators from YouTube video search"); common(p)
     p.add_argument("query"); p.add_argument("--max-results",type=int,default=100); p.add_argument("--region"); p.add_argument("--language"); p.add_argument("--add",action="store_true",help="add discovered creators to monitoring")
@@ -79,6 +79,13 @@ def main():
     p=sub.add_parser("reclassify",help="offline re-run system video classification from stored metadata"); common(p); p.add_argument("--only-missing",action="store_true"); p.add_argument("--limit",type=int)
     p=sub.add_parser("review-reclassify",help="offline re-run only unresolved review classifications"); common(p)
 
+    p=sub.add_parser("db-health",help="SQLite health, size and integrity summary"); common(p); p.add_argument("--full",action="store_true",help="run full integrity_check instead of quick_check")
+    p=sub.add_parser("backup",help="create a consistent SQLite backup using the SQLite backup API"); common(p); p.add_argument("--output")
+    p=sub.add_parser("restore",help="restore SQLite from a validated backup and create a pre-restore safety backup"); common(p); p.add_argument("path"); p.add_argument("--yes",action="store_true",help="required confirmation")
+    p=sub.add_parser("monitoring-health",help="show per-creator monitoring health and retry state"); common(p); p.add_argument("--limit",type=int,default=200)
+    p=sub.add_parser("workflow",help="set discovery workflow status for a creator"); common(p); p.add_argument("channel_id"); p.add_argument("status",choices=["unreviewed","interested","to_contact","added","defer","excluded"]); p.add_argument("--note",default="")
+    p=sub.add_parser("maintenance",help="database maintenance operations"); common(p); p.add_argument("kind",choices=["snapshots"]); p.add_argument("--dry-run",action="store_true"); p.add_argument("--auto",action="store_true")
+
     p=sub.add_parser("dashboard",help="build static offline Dashboard"); common(p); p.add_argument("--output",default=str(DEFAULT_OUTPUT))
     p=sub.add_parser("export",help="export objective data + label layers"); common(p); p.add_argument("--format",choices=["csv","json","xlsx"],default="xlsx"); p.add_argument("--output",default=str(ROOT/"exports"))
     p=sub.add_parser("import-v2",help="offline import from youtube-kol-gmv-intelligence V2 folder"); common(p); p.add_argument("path"); p.add_argument("--no-monitor",action="store_true")
@@ -90,8 +97,40 @@ def main():
         init_db(a.db); dump({"ok":True,"db":str(Path(a.db).resolve()),"version":__version__}); return
     if a.cmd=="doctor":
         init_db(a.db)
-        key_env=load_settings(a.settings)["api"].get("api_key_env","YOUTUBE_API_KEY")
-        dump({"python":sys.version.split()[0],"db":str(Path(a.db).resolve()),"db_exists":Path(a.db).exists(),"api_key_env":key_env,"api_key_present":bool(read_api_key(key_env)),"npm_required":False}); return
+        import importlib.util, sqlite3, tempfile
+        settings=load_settings(a.settings); key_env=settings["api"].get("api_key_env","YOUTUBE_API_KEY")
+        py_ok=sys.version_info>=(3,10); pip_ok=importlib.util.find_spec("pip") is not None; ox_ok=importlib.util.find_spec("openpyxl") is not None
+        dbp=Path(a.db); outp=Path(DEFAULT_OUTPUT); data_write=True; output_write=True
+        try:
+            dbp.parent.mkdir(parents=True,exist_ok=True); t=dbp.parent/".write_test"; t.write_text("ok"); t.unlink()
+        except Exception: data_write=False
+        try:
+            outp.mkdir(parents=True,exist_ok=True); t=outp/".write_test"; t.write_text("ok"); t.unlink()
+        except Exception: output_write=False
+        schema=None
+        try:
+            with sqlite3.connect(dbp) as cc:
+                r=cc.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone(); schema=r[0] if r else None
+        except Exception: pass
+        key_present=bool(read_api_key(key_env)); online=None; online_error=None
+        port_available=True; port_error=None
+        try:
+            import socket
+            sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            try:
+                sock.bind(("127.0.0.1",8765))
+            finally:
+                sock.close()
+        except OSError as e:
+            port_available=False; port_error=f"{type(e).__name__}: {e}"
+        if a.online:
+            if not key_present: online=False; online_error="YOUTUBE_API_KEY not configured"
+            else:
+                try:
+                    h=make_hub(a); h.api.call("videos",part="id",id="dQw4w9WgXcQ",maxResults=1); online=True
+                except Exception as e:
+                    online=False; online_error=f"{type(e).__name__}: {e}"
+        dump({"python":sys.version.split()[0],"python_executable":sys.executable,"python_ok":py_ok,"python_required":">=3.10","pip_present":pip_ok,"openpyxl_present":ox_ok,"db":str(dbp.resolve()),"db_exists":dbp.exists(),"schema_version":schema,"data_dir_writable":data_write,"output_dir_writable":output_write,"api_key_env":key_env,"api_key_present":key_present,"api_key_online_valid":online,"api_key_online_error":online_error,"interactive_url":"http://127.0.0.1:8765/","interactive_port":8765,"interactive_port_available":port_available,"interactive_port_error":port_error,"npm_required":False}); return
     hub=make_hub(a)
     if a.cmd=="discover":
         qs=[f"{a.query} {t}" for t in (a.expand_term or []) if str(t).strip()]
@@ -121,11 +160,29 @@ def main():
     elif a.cmd=="pending-labels": dump(hub.list_pending_labels(a.limit))
     elif a.cmd=="reclassify": dump(hub.reclassify_videos(only_missing=a.only_missing,limit=a.limit))
     elif a.cmd=="review-reclassify": dump(hub.reclassify_review_queue())
+    elif a.cmd=="db-health": dump(hub.database_health(full=a.full))
+    elif a.cmd=="backup": dump(hub.backup_database(destination=a.output if a.output else None))
+    elif a.cmd=="restore":
+        if not a.yes: raise SystemExit("restore requires --yes; a pre-restore safety backup will be created")
+        dump(hub.restore_database(a.path,create_pre_backup=True))
+    elif a.cmd=="monitoring-health": dump(hub.monitoring_health(limit=a.limit))
+    elif a.cmd=="workflow": dump(hub.set_creator_workflow(a.channel_id,a.status,note=a.note,actor="cli"))
+    elif a.cmd=="maintenance":
+        if a.kind=="snapshots": dump(hub.compact_snapshots(dry_run=a.dry_run,auto=a.auto))
     elif a.cmd=="dashboard": dump(build_dashboard(a.db,a.output,hub.settings))
     elif a.cmd=="export": dump(export_all(a.db,a.output,a.format))
     elif a.cmd=="import-v2": dump(import_v2(hub,a.path,monitoring=not a.no_monitor))
-    elif a.cmd=="metric-config-import": dump(import_metric_config(a.path))
-    elif a.cmd=="metric-config-export": dump(export_metric_config(a.path))
+    elif a.cmd=="metric-config-import":
+        obj=validate_metric_config(json.loads(Path(a.path).read_text(encoding="utf-8")))
+        file_result=import_metric_config(a.path)
+        db_result=hub.set_setting("secondary_metrics",obj)
+        dump({**file_result,"sqlite":db_result})
+    elif a.cmd=="metric-config-export":
+        obj=hub.get_setting("secondary_metrics",None)
+        if obj is not None:
+            dst=Path(a.path);dst.parent.mkdir(parents=True,exist_ok=True);dst.write_text(json.dumps(obj,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+            dump({"ok":True,"path":str(dst.resolve()),"metrics":sum(1 for m in obj.get("metrics",[]) if not m.get("internal")),"rules":len(obj.get("rules",[])),"source":"sqlite"})
+        else: dump(export_metric_config(a.path))
 
 
 if __name__=="__main__": main()

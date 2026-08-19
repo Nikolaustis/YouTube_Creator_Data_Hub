@@ -1,10 +1,55 @@
 ---
 name: youtube-creator-data-hub
 description: 本地 Python YouTube creator discovery and monitoring with related-video-to-creator video-to-creator web search, SQLite fact storage, objective channel/video metrics, snapshots, deterministic UgPhone/competitor classification, automatic creator relationship labels, country evidence, public contact scraping, discovery pre-scoring, configurable time-window capture, Chinese Dashboard, and user-defined secondary metrics. No Node/npm is required.
-version: 1.2.1
+version: 2.1.0
 ---
 
 # YouTube 博主数据中心
+
+## v2.1.0 统一分页与跨页批量选择
+
+- 所有大型表格继续执行默认 30 条/页；监控健康现在也使用标准分页。
+- 所有支持多选批量操作的表格均提供当前页全选、全部结果全选和清空选择。
+- 视频分类的跨页全选由服务端解析当前筛选条件，可覆盖全库而不把全部 Video ID 发送到浏览器。
+- Schema 保持 10。
+
+## v2.0.0 长期运行与数据治理
+
+- 交互模式的二次指标/规则与 Query Expansion 配置持久化到 SQLite；浏览器存储只作为静态/临时回退。
+- 数据更新页提供监控健康、数据库健康、一致性备份/恢复和 Snapshot 生命周期维护。
+- Creator 同步记录失败类型、连续失败、下次重试和暂停状态；失败采用退避并支持批量恢复。
+- 博主发现支持处理工作流、永久排除、首次/重复发现与批量操作。
+- 二次指标支持分组/说明/依赖保护；Creator 页面统一呈现各类数据新鲜度。
+- Schema 版本为 10；升级只迁移结构和派生状态，不覆盖现有业务数据库。
+
+## v1.6.0 应用结果状态与视频分类性能
+
+- 应用结果的 activeRule 不再作为持久筛选跨会话残留；“清除全部条件”同时清除普通筛选、规则和搜索词，并在结果区明确显示当前条件。
+- 视频分类交互模式直接连接完整 SQLite，不先展示 300 条静态预览的 10 页分页；静态预览只在只读模式使用。
+- 视频分类页面查询与全局 KPI 统计拆分；无筛选总数直接 COUNT(videos)，并新增关键 SQLite 索引。
+- 数据库 Schema 版本为 5。
+
+## v1.5.0 全局二级导航与首次部署引导
+
+- 五个一级 Dashboard 页面都提供当前页二级导航，支持锚点定位、平滑滚动、滚动高亮和 URL Hash。
+- `setup.cmd` 完成后提供交互/静态 Dashboard、自动监控和 API 在线验证入口。
+- `scripts/python-run.cmd` 统一解析 `python` / `py -3`，并用于主要启动器与自动监控脚本。
+- `doctor` 输出实际 Python 路径并检查本地 8765 端口是否可用于交互服务。
+
+## v1.4.0 博主发现导航与历史关键词恢复
+
+- 【博主发现】当前页面在左侧展开四个锚点导航，并随主区域滚动同步高亮。
+- v1.3 前历史发现不再统一显示 `Legacy Discovery`；保留原始 `discovery_hits`，只重建派生博主结果。
+- 历史实际 Query 通过 Query Pack 长尾词和已出现基础 Query 恢复关键词族，按“推断原关键词 × Creator”聚合；来源标记为 `inferred / 历史推断`，不声称恢复了旧搜索批次边界。
+- v1.3+ 正式搜索的 `base_query_source=exact`；博主级发现 XLSX 同时导出【原关键词】与【关键词来源】。
+
+## v1.3.0 安装引导、XLSX 导出与发现数据模型 v2
+
+- 首次安装推荐运行 `setup.cmd`；API Key 推荐通过 `scripts\set-api-key.cmd` 写入 Windows 用户环境变量 `YOUTUBE_API_KEY`。
+- `doctor` 检查 Python/pip/openpyxl/SQLite/写权限/API Key；`doctor --online` 进一步验证 API Key。
+- 静态 Dashboard 只读；交互 Dashboard 由 `start-dashboard.cmd` 启动本机 Python 服务并连接本机 SQLite。
+- 核心表格可导出 XLSX；完整筛选结果导出需要交互模式。
+- 博主发现每次搜索产生一个 `discovery_runs.run_id`；同时保存博主级 `discovery_creator_results` 与视频级 `discovery_hits`。旧 discovery hits 不臆造真实 run 边界；v1.4.0 起按恢复的基础关键词生成带【历史推断】来源的聚合。
 
 ## v1.2.1 交互筛选与二次指标排序修复
 
@@ -19,7 +64,7 @@ version: 1.2.1
 ## 操作原则
 
 - “搜索到的候选”与“正式博主库”必须分离。
-- `discover` 结果先保存到 `discovery_hits`；只有用户明确加入或抓取视频后才进入 `creators` 主库。
+- 每次发现创建 `discovery_runs` 搜索批次，同时保存博主级 `discovery_creator_results` 与视频级 `discovery_hits`；只有用户明确加入或抓取视频后才进入 `creators` 主库。
 - UgPhone / 竞品 / 日常分类由系统识别逻辑产生；人工修正只用于纠错。
 - Creator 身份标签由本地视频分类自动聚合：存在 UgPhone 视频即“合作过博主”，否则“未合作博主”；存在竞品/具体竞品品牌视频则追加对应身份。历史上合作过、仍在监控、同步数据足够新鲜且连续 30 天没有新的 UgPhone 视频时，额外标记“疑似不再合作”；它是待核查状态，不覆盖历史合作事实。
 - 对未合作候选可显示 发现评分；不要把该评分表述为客观 YouTube 字段。

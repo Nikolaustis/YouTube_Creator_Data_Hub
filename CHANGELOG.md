@@ -1,5 +1,71 @@
 # Changelog
 
+## v2.1.0
+
+- 【数据更新 → 监控健康】改为标准分页表格，默认每页 30 条，并提供页码、跳转和每页数量设置。
+- 所有支持批量操作的表格统一增加“勾选当前页 / 全选全部结果 / 清空选择”：总览博主库、视频分类、本次发现博主、已保存发现博主。
+- 跨页选择会保留翻页后的勾选状态；筛选条件变化时会主动清空旧选择，避免把旧筛选范围误用于新结果。
+- 视频分类的“全选全部结果”使用服务端 all-matching 选择器，不把 50 万+ Video ID 全部传到浏览器；允许在当前筛选范围内执行批量确认/修改/清除。
+- 已保存发现博主增加服务端跨页 ID 解析；本次搜索结果与总览则直接对当前完整筛选结果执行全选。
+- 优化批量视频复核写入，单次事务分块处理并保留人工复核审计，避免跨页大批量操作逐视频反复打开 SQLite 连接。
+- SQLite Schema 保持 10；不改变现有业务数据。
+
+## v2.0.1
+
+- Windows batch compatibility hotfix: normalize every `.cmd` launcher to CRLF line endings and ASCII-only command text.
+- Remove `chcp 65001` from batch launchers; Python/PowerShell handle their own Unicode output instead of changing CMD parsing mode mid-script.
+- Simplify `upgrade.cmd` to avoid non-ASCII legacy filenames during critical migration steps.
+- Extend `SELF_CHECK` to reject LF-only or non-ASCII `.cmd` files in future release packages.
+- No schema or business-data changes relative to v2.0.0; Schema remains 10.
+
+## v2.0.0
+
+- Persist secondary-metric/rule configuration and Query Expansion profiles in SQLite `app_settings`; use browser storage only as a fallback/cache.
+- Add database health, SQLite backup/restore, backup registry and maintenance audit records.
+- Add Creator-level monitoring health, typed sync errors, consecutive failure counters, next-sync/retry timestamps, exponential retry backoff and suspension after repeated failures.
+- Add Snapshot lifecycle compaction: full <=30d, daily 31–180d, weekly 181–730d, monthly thereafter; scheduled sync performs auto maintenance no more than weekly.
+- Add Discovery workflow states (unreviewed/interested/to-contact/added/defer/excluded), workflow audit, exclusion hiding, first/repeat discovery and discovery-history summaries.
+- Add batch Creator and batch classification actions.
+- Extend Secondary Metrics with groups, descriptions, timestamps, dependency display and delete protection.
+- Add unified freshness timestamps for channel facts, video metrics, classification, contacts, discovery and complete sync.
+- Extend Data Update Dashboard with monitoring health, backup/restore and Snapshot maintenance controls.
+- Bump SQLite schema to 10; migrations preserve existing objective data, discovery hits and human labels.
+
+## v1.6.0
+
+- Make the Secondary Metrics active rule a transient viewing condition instead of a silently persistent localStorage filter.
+- Rename the result reset action to “清除全部条件” and clear filters, active rule, and search together; show active conditions/rule in the result summary.
+- In interactive Video Classification mode, hide the 300-row static preview while connecting and load the real SQLite first page directly; static preview pagination is now only used in read-only mode.
+- Split classification KPI totals from paged list queries so every page/filter/sort no longer repeats the full global aggregation.
+- Use direct `COUNT(videos)` for the unfiltered total and only add classification/Creator joins to COUNT queries when the active conditions need them.
+- Bump SQLite schema to 5 and add indexes for global publish-time ordering, system role/confidence, and human role.
+
+## v1.5.0
+
+- Expand the sidebar section navigation from Discovery-only to all five top-level Dashboard pages.
+- Add stable anchors for Overview, Secondary Metrics, Video Classification, Discovery, and Data Update sections; section navigation supports smooth scroll, active-section tracking, and URL hashes.
+- Improve first-run `setup.cmd` with a post-install next-step menu for interactive/static Dashboard, monitoring task installation, and online API-key validation.
+- Add `scripts/python-run.cmd` with `python` -> `py -3` fallback and route the primary CMD launchers / scheduled sync through the same resolver.
+- Extend `doctor` with the actual Python executable path and local port 8765 availability diagnostics.
+
+## v1.4.0
+
+- 【博主发现】侧边栏新增四项页面内二级导航，支持锚点直达、平滑滚动与当前区块自动高亮。
+- Schema 升级至 4，`discovery_runs` 新增 `base_query_source`，区分精确记录与历史推断。
+- 移除 v1.3.0 单一 `legacy-history / Legacy Discovery` 派生模型；保留全部原始 `discovery_hits`，仅重建历史派生 Run 与 Creator 结果。
+- 基于 Query Pack 已知长尾词和历史实际 Query 前缀恢复旧基础关键词，并按“推断原关键词 × Creator”重新聚合。
+- 旧历史聚合使用稳定 `legacy-keyword-*` Run ID，并明确标记【历史推断】，不伪造旧搜索时间批次。
+- 博主级发现 Dashboard 与 XLSX 增加【关键词来源】，修复【原关键词】列全部为 `Legacy Discovery`。
+
+## v1.3.0
+
+- 新增首次安装入口 `setup.cmd`、CMD 版 API Key 配置入口和增强版 `doctor / doctor --online`。
+- Dashboard 顶部显示当前运行模式；明确区分静态只读与 `127.0.0.1:8765` 本地交互模式。
+- 核心表格增加 XLSX 导出；交互模式按当前筛选与排序导出全部命中结果，而不是仅当前页。
+- 博主发现新增 `discovery_runs` 搜索批次和 `discovery_creator_results` 博主级结果；`discovery_hits` 继续保存视频命中证据。
+- 新搜索完成后同时即时保存博主级结果和视频级命中；历史旧数据完整保留，并以 `Legacy Discovery` 方式生成博主级聚合而不臆造旧搜索批次。
+- 【博主发现】分别提供“博主记录”和“视频命中记录”的筛选、分页与 XLSX 导出。
+
 ## v1.2.1
 - Fix Secondary Metrics sorting for constructed and ratio metrics (`findMetric` reference error).
 - Harden Overview and Video Classification filter apply actions and show applied-filter feedback.

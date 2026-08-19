@@ -139,3 +139,9 @@ v1.0.0 会尝试迁移旧浏览器配置：
 - 旧“分子视频聚合 ÷ 分母视频聚合”比值会迁移为两个隐藏构建指标，再由比值指标引用
 
 因此 v1.0.0 的新建指标不会再混用 Creator 与 Video 粒度。
+
+## v2.1.0 configuration persistence and dependency safety
+
+In interactive mode, the complete Secondary Metrics workspace (constructed metrics, ratio metrics, rules and saved result filters) is stored in SQLite `app_settings.secondary_metrics`. Existing browser workspaces are migrated only when SQLite does not yet contain a saved configuration. Static read-only mode can still use the browser-local fallback.
+
+Metrics and rules may carry a group, business description, created time and updated time. Before deletion, the Dashboard checks dependencies from ratio metrics, rules and active filters. A referenced metric cannot be deleted until those dependencies are removed or changed.

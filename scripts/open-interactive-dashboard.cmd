@@ -1,4 +1,4 @@
 @echo off
 cd /d "%~dp0.."
-python hub.py serve
+call scripts\python-run.cmd hub.py serve
 if errorlevel 1 pause
