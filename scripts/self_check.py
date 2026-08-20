@@ -1,24 +1,28 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from creator_hub.dashboard import build_dashboard
+from creator_hub.dashboard import build_dashboard, creator_facts_payload, metric_base_payload, dashboard_stats_payload
 from creator_hub.db import init_db, SCHEMA_VERSION
 from creator_hub.exporter import export_all
 from creator_hub.geography import geography, group_codes, resolve_country_query
-from creator_hub.importers import import_v2
+from creator_hub.importers import import_v2, import_business_metrics
 from creator_hub.metric_config import import_metric_config, load_metric_config
 from creator_hub.monitoring import monitoring_data_fresh, suspected_inactive_partner
 from creator_hub.util import parse_iso
 from creator_hub.service import CreatorHub
+from creator_hub.classifier import suggest_label
+from creator_hub.jobs import JobStore
 
 
 def main():
@@ -35,6 +39,10 @@ def main():
     assert (ROOT / "upgrade.cmd").exists()
     assert (ROOT / "setup.cmd").exists()
     assert (ROOT / "scripts" / "set-api-key.cmd").exists()
+    assert (ROOT / "scripts" / "set-ai-key.cmd").exists()
+    assert (ROOT / "setup-ai.cmd").exists()
+    assert (ROOT / "docs" / "AI.md").exists()
+    assert (ROOT / "scripts" / "ai_setup.py").exists()
     assert (ROOT / "scripts" / "python-run.cmd").exists()
     assert (ROOT / "scripts" / "pre_upgrade_backup.py").exists()
     assert (ROOT / "docs" / "INSTALLATION.md").exists()
@@ -45,7 +53,7 @@ def main():
         assert b"\r\n" in batch_bytes, f"CMD must use CRLF: {batch_file.relative_to(ROOT)}"
         assert batch_bytes.count(b"\n") == batch_bytes.count(b"\r\n"), f"CMD contains LF-only lines: {batch_file.relative_to(ROOT)}"
         assert all(byte < 128 for byte in batch_bytes), f"CMD must be ASCII-only: {batch_file.relative_to(ROOT)}"
-    assert SCHEMA_VERSION == 10
+    assert SCHEMA_VERSION == 15
 
     # Geography: every ISO alpha-2 country/territory is available and assigned to one of the 11 product groups.
     geo = geography()
@@ -64,6 +72,19 @@ def main():
     assert [p["id"] for p in qp["packs"]] == ["core", "farming", "afk", "active", "commercial", "custom"]
     assert "AFK" in next(p for p in qp["packs"] if p["id"] == "afk")["terms"]["en"]
     assert "掛機刷資源" in next(p for p in qp["packs"] if p["id"] == "afk")["terms"]["zh-TW"]
+
+    # v3.3.2 classifier regression: discovery/use-case terms are not cloud-phone evidence.
+    brand_cfg = json.loads((ROOT / "config" / "brands.json").read_text(encoding="utf-8"))
+    assert "afk" not in {x.lower() for x in brand_cfg["classification"]["cloud_entity_terms"]}
+    assert "afk" in {x.lower() for x in brand_cfg["classification"]["use_case_terms"]}
+    scene_only = suggest_label({"video_id":"6OawBubrO24","title":"Roblox Rivals Script Auto Farm 24/7 AFK","description":"Aimbot ESP auto win","tags":["multi-instance"]}, brand_cfg)
+    assert scene_only["suggested_role"] == "daily" and any(str(x).startswith("use_case_not_cloud_evidence:") for x in scene_only["evidence"])
+    scene_only_2 = suggest_label({"video_id":"g1wWnYX__eE","title":"AFK Auto Farm Guide","description":"Run 24/7 on PC","tags":[]}, brand_cfg)
+    assert scene_only_2["suggested_role"] == "daily"
+    redfinger_link = suggest_label({"video_id":"W6jW1fccRic","title":"Anime Origin guide","description":"Refingers download https://cloudemulator.net/app/sign-in?from=creator","tags":[]}, brand_cfg)
+    assert redfinger_link["suggested_role"] == "competitor" and "redfinger" in redfinger_link["brands"]
+    explicit_cloud = suggest_label({"video_id":"cloudentity01","title":"Best cloud phone for Android","description":"","tags":[]}, brand_cfg)
+    assert explicit_cloud["suggested_role"] == "other_cloud_phone"
 
     tmp = Path(tempfile.mkdtemp(prefix="creator_hub_selfcheck_"))
     try:
@@ -110,6 +131,14 @@ def main():
             ]) + "\n",
             encoding="utf-8",
         )
+        # v3.6 business metrics fixture: old/manual Creator commercial performance stays in an independent fact layer.
+        from openpyxl import Workbook
+        biz_book = Workbook()
+        biz_ws = biz_book.active
+        biz_ws.title = "Creator Business"
+        biz_ws.append(["博主名称", "GMV", "拉新", "币种", "周期开始", "周期结束", "备注"])
+        biz_ws.append(["Demo Creator", 32735.86, 149145, "USD", "2026-01-01", "2026-06-30", "legacy signed creator data"])
+        biz_book.save(tmp / "v2" / "business_metrics.xlsx")
 
         # v1.4 legacy discovery migration: preserve raw hits, recover keyword families,
         # remove the v1.3 single Legacy Discovery derived summary, and label provenance.
@@ -150,6 +179,14 @@ def main():
         hub = CreatorHub(db)
         result = import_v2(hub, tmp / "v2")
         assert result["creators"] == 1 and result["videos"] == 1
+        assert result["business_metrics"]["metric_values_upserted"] == 2
+        biz = hub.creator_business_metrics(cid)
+        assert round(biz["totals"]["gmv"]["value"], 2) == 32735.86
+        assert int(biz["totals"]["new_users"]["value"]) == 149145
+        # Saved Views persist query/display state instead of forcing repeated filter reconstruction.
+        sv = hub.save_view("creator_library", "Self Check View", {"sort":"gmv_total","dir":"desc","conditions":[{"field":"gmv_total","op":"gte","value":"1000"}]})
+        assert hub.saved_views("creator_library")[0]["config"]["sort"] == "gmv_total"
+        assert hub.delete_view(sv["id"])["deleted"] == 1
         st = hub.status()
         assert st["videos"] == 1 and st["video_snapshots"] == 2
         assert hub.list_pending_labels(10) == []
@@ -222,6 +259,9 @@ def main():
         assert due_run["skipped_not_due"] == 1 and calls == []
         force_run=hub.sync_all(mode="incremental",force=True)
         assert force_run["force"] is True and calls == [cid]
+        calls.clear()
+        selected_run=hub.sync_selected([cid],mode="incremental")
+        assert selected_run["creators_processed"] == 1 and calls == [cid]
         hub.sync_creator=original_sync_creator
 
         # Monitoring observability distinguishes due vs stale and stores retry state fields.
@@ -229,6 +269,60 @@ def main():
             conn.execute("UPDATE creators SET last_synced_at='2026-01-01T00:00:00Z',last_sync_status='success',sync_suspended=0 WHERE channel_id=?",(cid,));conn.commit()
         mh=hub.monitoring_health(limit=10)
         assert mh["total"] == 1 and mh["rows"][0]["health_state"] == "stale"
+
+        # v3.5 channel lifecycle: a channels.list miss alone is not a Community Guidelines label;
+        # an explicit public-page marker is terminal and leaves historical data intact.
+        lifecycle_db = tmp / "lifecycle.sqlite"
+        lifecycle_hub = CreatorHub(lifecycle_db)
+        lcid="LC"+"1"*22; pcid="PC"+"2"*22
+        with sqlite3.connect(lifecycle_db) as conn:
+            conn.execute("INSERT INTO creators(channel_id,channel_title,monitoring_enabled,priority,created_at) VALUES(?,?,?,?,?)",(lcid,"Terminated Creator",1,"normal",now_utc()))
+            conn.execute("INSERT INTO creators(channel_id,channel_title,monitoring_enabled,priority,created_at) VALUES(?,?,?,?,?)",(pcid,"Pending Creator",1,"normal",now_utc()))
+            conn.commit()
+        lifecycle_hub._probe_public_channel_page=lambda channel_id: ({"status":"terminated_community","reason":"explicit community marker","source":"public_page","terminal":True} if channel_id==lcid else {"status":"unavailable_pending","reason":"API miss only","source":"public_page","terminal":False})
+        terminal=lifecycle_hub._record_sync_failure(lcid,mode="incremental",attempt_id=None,exc=Exception("未找到频道"))
+        pending=lifecycle_hub._record_sync_failure(pcid,mode="incremental",attempt_id=None,exc=Exception("未找到频道"))
+        assert terminal["availability_status"]=="terminated_community" and terminal["sync_suspended"] is True and terminal["next_retry_at"] is None
+        assert pending["availability_status"]=="unavailable_pending" and pending["sync_suspended"] is False and pending["next_retry_at"]
+        with sqlite3.connect(lifecycle_db) as conn:
+            lr=conn.execute("SELECT availability_status,monitoring_enabled,sync_suspended,next_retry_at FROM creators WHERE channel_id=?",(lcid,)).fetchone()
+            pr=conn.execute("SELECT availability_status,monitoring_enabled,sync_suspended,next_retry_at FROM creators WHERE channel_id=?",(pcid,)).fetchone()
+        assert tuple(lr[:3])==("terminated_community",0,1) and lr[3] is None
+        assert tuple(pr[:3])==("unavailable_pending",1,0) and pr[3]
+        lhealth=lifecycle_hub.monitoring_health(page=1,page_size=30)
+        termrow=next(x for x in lhealth["rows"] if x["channel_id"]==lcid)
+        assert termrow["channel_status"]=="terminated_community" and termrow["health_state"]=="not_applicable" and termrow["monitoring_state"]=="stopped"
+
+        # v3.7 manual availability/content/monitoring overrides preserve system detection for audit.
+        ov=lifecycle_hub.set_creator_availability_override([pcid], availability_status="terminated_community", content_status="history_cleared", monitoring_policy="stopped", note="manual confirmation", actor="self_check")
+        assert ov["processed"]==1
+        ohealth=lifecycle_hub.monitoring_health(page=1,page_size=30)
+        orow=next(x for x in ohealth["rows"] if x["channel_id"]==pcid)
+        assert orow["channel_status"]=="terminated_community" and orow["system_channel_status"]=="unavailable_pending" and orow["channel_status_source"]=="人工覆盖"
+        assert orow["content_status"]=="history_cleared" and orow["monitoring_policy"]=="stopped" and orow["health_state"]=="not_applicable"
+        cleared=lifecycle_hub.clear_creator_availability_override([pcid],actor="self_check")
+        assert cleared["processed"]==1
+        chealth=lifecycle_hub.monitoring_health(page=1,page_size=30)
+        crow=next(x for x in chealth["rows"] if x["channel_id"]==pcid)
+        assert crow["channel_status"]=="unavailable_pending" and crow["channel_status_source"]=="系统检测"
+        with sqlite3.connect(lifecycle_db) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM creator_availability_override_audit WHERE channel_id=?",(pcid,)).fetchone()[0] >= 2
+
+        # v3.7 persistent Job Center: progress survives page navigation/refresh and completed history survives server recreation.
+        js=JobStore(db)
+        def job_runner(progress):
+            progress(stage="阶段一",message="处理中",current=1,total=2)
+            progress(stage="阶段二",message="完成",current=2,total=2)
+            return {"processed":2}
+        started=js.start(task="selfcheck",title="Self Check Job",runner=job_runner)
+        for _ in range(100):
+            jj=js.get(started["job_id"])
+            if jj and jj["state"] in {"complete","failed"}: break
+            time.sleep(0.01)
+        assert jj and jj["state"]=="complete" and jj["percent"]==100 and jj["result"]["processed"]==2 and jj["stage"]=="完成"
+        js_reloaded=JobStore(db)
+        persisted=js_reloaded.get(started["job_id"]); persisted_list=js_reloaded.list(limit=20)
+        assert persisted and persisted["state"]=="complete" and any(x["job_id"]==started["job_id"] for x in persisted_list)
 
         # v2.1 unified table policy: monitoring health defaults to 30 rows/page.
         health_db = tmp / "health_paging.sqlite"
@@ -263,6 +357,11 @@ def main():
         assert batch["processed"] == 38 and not batch["errors"]
         with sqlite3.connect(select_db) as conn:
             assert conn.execute("SELECT COUNT(*) FROM video_labels").fetchone()[0] == 38
+            # Human correction is the effective business classification; system suggestion remains auditable.
+            changed=mids[2]
+            conn.execute("UPDATE video_labels SET human_role='daily' WHERE video_id=?",(changed,));conn.commit()
+        eff=select_hub.classification_list(conditions=[{"field":"role","value":"daily"},{"field":"human_system_mismatch","value":"mismatch"}],page_size=100)
+        assert any(r["video_id"]==changed and r["effective_role"]=="daily" and r["suggested_role"]=="ugphone" and r["classification_source"]=="human" for r in eff["rows"])
 
         # Consistent backup/restore through SQLite Backup API.
         hub.set_setting("dashboard_preferences", {"selfcheck":1})
@@ -334,13 +433,160 @@ def main():
             src = conn.execute("SELECT base_query,base_query_source FROM discovery_runs WHERE run_id=?",(expanded["run_id"],)).fetchone()
             assert src and src[0] == "Demo Game" and src[1] == "exact"
 
+        # v3.1 AI-OFF guarantee: AI is optional and core startup remains healthy without a key/provider.
+        ai_off = hub.ai_status()
+        assert ai_off["enabled"] is False and ai_off["available"] is False
+        assert hub.status()["videos"] >= 2
+
+        # Offline Mock provider validates the AI enhancement layer without network/API credentials.
+        cid2 = "UC2234567890123456789012"
+        with sqlite3.connect(db) as conn:
+            conn.execute("INSERT INTO creators(channel_id,channel_title,handle,subscriber_count,channel_view_count,monitoring_enabled,priority,created_at) VALUES(?,?,?,?,?,?,?,?)",(cid2,"Second Creator","@secondcreator",5000,500000,1,"normal",now_utc()))
+            conn.commit()
+        # A real API key may already be configured on the user's machine. Mock must
+        # ignore it completely rather than leaking that host state into self-check.
+        prior_ai_key = os.environ.get("CREATOR_HUB_AI_API_KEY")
+        os.environ["CREATOR_HUB_AI_API_KEY"] = "self-check-key-that-mock-must-ignore"
+        try:
+            hub.configure_ai({"enabled":True,"protocol":"mock","model":"mock-v1","daily_request_soft_limit":100})
+            ai_on = hub.ai_status()
+            assert ai_on["enabled"] and ai_on["available"] and ai_on["protocol"] == "mock" and ai_on["api_key_present"] is False
+        finally:
+            if prior_ai_key is None:
+                os.environ.pop("CREATOR_HUB_AI_API_KEY", None)
+            else:
+                os.environ["CREATOR_HUB_AI_API_KEY"] = prior_ai_key
+        ab = hub.ai_creator_brief(cid)
+        assert ab["result"]["summary"] and ab["finding_id"]
+        ac = hub.ai_compare_creators([cid,cid2])
+        assert len(ac["result"]["ranking"]) == 2
+        aq = hub.ai_query_planner("Demo Game", language="en")
+        assert len(aq["result"]["queries"]) >= 1 and "fit_criteria" in aq["result"]
+        aq_fit=hub.ai_query_planner("Anime Expeditions",language="en",objective="优先寻找长期制作AFK、挂机、多开等适配云手机使用场景的的中小体量博主")
+        assert aq_fit["result"]["fit_criteria"]["subscriber_max"] == 100000 and aq_fit["result"]["fit_criteria"]["prefer_long_term"] is True
+        assert {"AFK","multi-instance","multi account"}.issubset(set(aq_fit["result"]["fit_criteria"]["search_concepts"]))
+        fitc=aq_fit["result"]["fit_criteria"]
+        assert fitc["long_term_min_videos"]==5 and fitc["long_term_min_months"]==3
+        assert fitc["exclude_official_channels"] is True and fitc["exclude_script_cheat_channels"] is True
+        assert len(aq_fit["result"]["queries"]) <= 12
+        agent=hub._ai()
+        assert agent._canonical_query("Anime Expeditions","Anime Expeditions Anime Expeditions") == "Anime Expeditions"
+
+        # v3.8 Creator sourcing gate: channel-level topic context validates continuity; scripts/official sources are removed; unprofiled candidates remain pending rather than failed.
+        good="AG"+"1"*22; scriptc="AS"+"2"*22; cloudc="AC"+"3"*22; gamec="AO"+"4"*22; offvid="AV"+"5"*22; unprofiled="AU"+"6"*22
+        months=["2026-01-01T00:00:00Z","2026-01-15T00:00:00Z","2026-02-01T00:00:00Z","2026-02-15T00:00:00Z","2026-03-01T00:00:00Z","2026-03-15T00:00:00Z"]
+        def recent(prefix, suffix="AFK Guide"):
+            return [{"title":f"{suffix} {i}","published_at":d,"video_id":f"x{i:010d}"[:11]} for i,d in enumerate(months)]
+        profiles={
+            good:recent("g"),
+            scriptc:recent("s","AFK Script Hack Keyless"),
+            cloudc:recent("c"),
+            gamec:recent("o"),
+            offvid:recent("v"),
+            unprofiled:[],
+        }
+        pmeta={
+            "profiled_creators":5,"profile_api_calls":0,"profile_errors":[],
+            "profile_status":{good:"profiled",scriptc:"profiled",cloudc:"profiled",gamec:"profiled",offvid:"profiled",unprofiled:"profile_error"},
+            "channel_details":{
+                good:{"title":"Good Creator","description":""},
+                scriptc:{"title":"Script Hub","description":""},
+                cloudc:{"title":"UgPhone Cloud Phone","description":""},
+                gamec:{"title":"Anime Expeditions Official","description":"Official YouTube channel"},
+                offvid:{"title":"Roblox Official","description":"Official YouTube channel"},
+                unprofiled:{"title":"Unverified Creator","description":""},
+            },
+        }
+        rows=[
+            {"channel_id":good,"channel_title":"Good Creator","subscribers":20000,"title":"Anime Expeditions AFK Guide","query_coverage":3},
+            {"channel_id":scriptc,"channel_title":"Script Hub","subscribers":20000,"title":"Anime Expeditions AFK Script Hack","query_coverage":3},
+            {"channel_id":cloudc,"channel_title":"UgPhone Cloud Phone","subscribers":20000,"title":"Anime Expeditions AFK Guide","query_coverage":3},
+            {"channel_id":gamec,"channel_title":"Anime Expeditions Official","subscribers":20000,"title":"Anime Expeditions AFK Guide","query_coverage":3},
+            {"channel_id":offvid,"channel_title":"Roblox Official","subscribers":20000,"title":"Anime Expeditions Official Trailer","query_coverage":3},
+            {"channel_id":unprofiled,"channel_title":"Unverified Creator","subscribers":20000,"title":"Anime Expeditions AFK Guide","query_coverage":3},
+        ]
+        fit_plan={"fit_criteria":{
+            "subscriber_min":None,"subscriber_max":100000,"search_concepts":["AFK"],"preferred_terms":["AFK"],
+            "exclude_terms":[],"continuity_terms":["AFK"],"require_topic_match":True,"prefer_long_term":True,
+            "long_term_min_videos":5,"long_term_min_months":3,"exclude_official_channels":True,"exclude_script_cheat_channels":True,
+        }}
+        orig_profiles=agent._recent_upload_profiles
+        agent._recent_upload_profiles=lambda _rows,limit=100,progress=None:(profiles,pmeta)
+        try:
+            retained,fit_meta=agent._agent_fit("Anime Expeditions","寻找长期制作AFK、挂机、多开的中小体量博主",fit_plan,{"results":rows})
+        finally:
+            agent._recent_upload_profiles=orig_profiles
+        assert [r["channel_id"] for r in retained] == [good]
+        assert retained[0]["continuity_gate_passed"] is True and retained[0]["profile_verification_status"]=="已验证"
+        assert all(k in retained[0] for k in ["content_fit_score","continuity_fit_score","brand_safety_score","audience_size_fit_score","query_coverage_score"])
+        cats=fit_meta["filtered_categories"]
+        assert cats.get("script_cheat",0)>=1 and cats.get("official_cloud_phone",0)>=1 and cats.get("official_game",0)>=1 and cats.get("official_game_video",0)>=1
+        assert fit_meta.get("pending_verification",0)>=1 and cats.get("profile_unverified",0)==0
+        assert retained[0].get("channel_topic_context_verified") is True and retained[0].get("objective_recent_videos") == 6
+        assert hub.ai_models({"enabled":True,"protocol":"mock","model":"mock-v1"})["models"] == ["mock-v1"]
+        assert hub.ai_test()["result"]["message"]
+        original_expanded = hub.discover_expanded
+        def fake_ai_expanded(base_query, queries=None, **kwargs):
+            assert kwargs.get("search_source") == "api"
+            with sqlite3.connect(db) as conn:
+                conn.execute("INSERT OR REPLACE INTO discovery_runs(run_id,base_query,search_source,started_at,status) VALUES(?,?,?,?,?)",("ai-search-test",base_query,"api",now_utc(),"complete"));conn.commit()
+            return {"run_id":"ai-search-test","query_count":1+len(queries or []),"hits":7,"unique_creators":2,"queries_executed":[base_query]+list(queries or []),"results":[{"channel_id":cid,"channel_title":"Demo Creator","subscribers":10000,"country_resolved":"PH","pre_score":88.0,"title":"Matched video","views":1200,"query_coverage":2},{"channel_id":cid2,"channel_title":"Second Creator","subscribers":5000,"country_resolved":"TH","pre_score":70.0,"title":"Second video","views":500,"query_coverage":1}]}
+        hub.discover_expanded = fake_ai_expanded
+        asearch = hub.ai_query_search("Demo Game",language="en",max_queries=5,max_results=10)
+        hub.discover_expanded = original_expanded
+        assert asearch["youtube_api_used"] is True and asearch["discovery"]["unique_creators"] == 2 and asearch["result_set_id"]
+        ars=hub.ai_result_set(asearch["result_set_id"],page=1,page_size=30)
+        assert ars["total"] == 2 and all("objective_fit_score" in r and "local_data_status" in r for r in ars["rows"])
+        aa = hub.ai_ask("show creators")
+        assert "plan" in aa and isinstance(aa["rows"],list) and aa["result_set_id"] and aa["count"] >= 2
+        ar=hub.ai_result_set(aa["result_set_id"],page=1,page_size=1,sort="subscribers",direction="desc")
+        assert ar["total"] == aa["count"] and len(ar["rows"]) == 1 and ar["pages"] >= 2
+        arf=hub.ai_result_set(aa["result_set_id"],conditions=[{"field":"subscribers","op":">=","value":"9000"}])
+        assert arf["total"] >= 1
+        arh=hub.ai_result_history(page=1,page_size=30)
+        assert arh["total"] >= 2 and arh["page_size"] == 30
+        sugg=hub.creator_suggestions("Demo",limit=10)
+        assert sugg and sugg[0]["channel_id"] == cid
+        aa2=hub.ai_ask("show creators")
+        assert aa2["cached"] is True and aa2["run_id"] != aa["run_id"] and aa2["result_set_id"] != aa["result_set_id"]
+        aw = hub.ai_weekly_brief()
+        assert aw["result"]["headline"]
+        ah = hub.ai_history(page=1,page_size=30)
+        assert ah["total"] >= 5 and ah["page_size"] == 30
+        with sqlite3.connect(db) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM ai_findings").fetchone()[0] >= 1
+            assert conn.execute("SELECT COUNT(*) FROM ai_evidence").fetchone()[0] >= 1
+            assert conn.execute("SELECT COUNT(*) FROM ai_result_sets").fetchone()[0] >= 3
+            assert conn.execute("SELECT COUNT(*) FROM ai_result_items").fetchone()[0] >= 2
+            assert {r[1] for r in conn.execute("PRAGMA table_info(ai_runs)")} >= {"source_json","result_json","cache_hit"}
+            linked=conn.execute("SELECT ai_run_id FROM discovery_runs WHERE run_id='ai-search-test'").fetchone()
+            assert linked and linked[0]
+        hub.configure_ai({"enabled":False,"protocol":"openai_responses","model":""})
+        assert hub.ai_status()["enabled"] is False
+
+        # v3.3 live Dashboard payloads and batch capture: write SQLite once, refresh facts/cubes without rebuilding HTML.
+        live_facts=creator_facts_payload(db,hub.settings)
+        live_stats=dashboard_stats_payload(db)
+        live_base=metric_base_payload(db,hub.settings)
+        assert any(x["channel_id"]==cid and int(x["stored_videos"] or 0)>=2 for x in live_facts["creators"])
+        assert live_stats["videos"] >= 2 and cid in live_base["cubes"]
+        original_capture=hub.capture_window
+        capture_calls=[]
+        def fake_capture(ref, **kwargs):
+            capture_calls.append((ref,kwargs));return {"channel_id":ref,"videos_processed":3}
+        hub.capture_window=fake_capture
+        batch_capture=hub.batch_capture_creators([cid,"UC9999999999999999999999"],window="full")
+        hub.capture_window=original_capture
+        assert batch_capture["processed"]==2 and batch_capture["videos_processed"]==6
+        assert all(call[1].get("full_history") is True for call in capture_calls)
+
         dash = build_dashboard(db, tmp / "dashboard", hub.settings)
         assert Path(dash["index"]).exists()
         assert (tmp / "dashboard" / "creators" / (cid + ".html")).exists()
         assert (tmp / "dashboard" / "metrics.html").exists()
         for asset in [
             "creator_facts.js", "metric_base.js", "metrics_workspace.js", "metrics_config.js",
-            "overview_filters.js", "discovery.js", "table_tools.js", "creator_detail.js", "review.js", "geography.js", "query_packs.js", "section_nav.js", "maintenance.js",
+            "overview_filters.js", "discovery.js", "table_tools.js", "creator_detail.js", "review.js", "geography.js", "query_packs.js", "section_nav.js", "maintenance.js", "ai_copilot.js", "product_ui.js", "saved_views.js", "business_metrics.js",
         ]:
             assert (tmp / "dashboard" / "assets" / asset).exists(), asset
         assert not (tmp / "dashboard" / "assets" / "metrics_data.js").exists()
@@ -372,9 +618,10 @@ def main():
         assert "UgPhone视频数" in index and "博主库" in index and 'id="ovFilterConditions"' in index
         assert "identity-partnered" in index and "identity-unpartnered" in index and "identity-competitor" in index
         assert "identity-suspected" in index and "疑似不再合作" in index
-        assert "优先级" in index and "监控中" in index and "下次同步" in index
+        assert "商业表现" in index and "GMV" in index and ">详情</button>" in index
+        assert 'id="ovSavedView"' in index and 'product_ui.js' in index and 'saved_views.js' in index
         assert 'value="ugphone_video_count" selected' in index and '<option value="desc" selected>降序</option>' in index
-        assert "查看本地详情" not in index and "查看详情" in index
+        assert "查看本地详情" not in index and ">详情</button>" in index
         assert "竞品博主" not in index and "LDCloud合作博主" in index
         assert 'value="30"' in index and "ovPageSizeConfirm" in index and "ovFirst" in index and "ovLast" in index and "ovJump" in index
         assert "视频指标快照" not in index and "待复核分类" not in index
@@ -384,10 +631,18 @@ def main():
         assert 'id="overview-summary"' in index and 'id="overview-identity"' in index and 'id="overview-library"' in index
         overview_js=(tmp / "dashboard" / "assets" / "overview_filters.js").read_text(encoding="utf-8")
         assert "已应用 ${active.length} 个筛选条件" in overview_js
+        assert "/api/creators/facts" in overview_js and "/api/dashboard/stats" in overview_js and "/api/metrics/base" in overview_js
+        assert "cdh-data-revision" in overview_js
+        job_js=(tmp / "dashboard" / "assets" / "job_progress.js").read_text(encoding="utf-8")
+        assert "/api/jobs/start" in job_js and "/api/jobs/status" in job_js and "job-dock" in job_js
+        assert "cdhJobMin" in job_js and "cdhJobClose" in job_js and "job-card-dismiss" in job_js and "job-launcher" in job_js
+        table_js=(tmp / "dashboard" / "assets" / "table_tools.js").read_text(encoding="utf-8")
+        assert "highlightHeaders" in table_js and "filter-sort-active" in table_js
+        assert "enhanceSmartTable" in table_js and "smart-scroll-top" not in table_js and "table-layout:fixed" in (ROOT / "creator_hub" / "dashboard.py").read_text(encoding="utf-8")
 
         labels = (tmp / "dashboard" / "labels.html").read_text(encoding="utf-8")
-        assert "离线重新识别全部待复核" in labels
-        assert "全部本地视频" in labels and "待人工复核" in labels and "复核状态 / 最终分类" in labels
+        assert "离线重新识别全部系统分类" in labels and "仅重新识别待复核" in labels
+        assert "全部本地视频" in labels and "待人工复核" in labels and "有效分类（人工优先）" in labels and "系统原始分类" in labels
         assert "当前没有待人工复核的分类" not in labels
         assert 'id="labelFilterConditions"' in labels and 'id="labelPageInfoTop"' in labels
         assert "labelPageSizeConfirm" in labels and "labelFirst" in labels and "labelLast" in labels and "labelJump" in labels
@@ -399,12 +654,16 @@ def main():
         review_js=(tmp / "dashboard" / "assets" / "review.js").read_text(encoding="utf-8")
         assert "/api/videos/classifications" in review_js and "review_status" in review_js and "当前筛选条件下没有视频" in review_js
         assert "staticRows.forEach(r=>r.style.display='none')" in review_js and "正在读取完整数据库第一页" in review_js
-        assert "/api/videos/classification-stats" in review_js
+        assert "/api/videos/classification-stats" in review_js and "/api/review/reclassify-all" in review_js
+        assert "cdh-data-revision" in review_js
         assert "let page=1,size=30" in review_js
         assert "播放量" in review_js and "点赞数" in review_js and "评论数" in review_js and "视频时长（秒）" in review_js and "发布时间" in review_js
         assert "rf-op" in review_js and "numericFields" in review_js
         assert "已对静态预览应用 ${activeConditions.length} 个筛选条件" in review_js
         assert 'id="labelFilterStatus"' in labels
+        assert 'id="labelTable"' in labels and 'data-field="role effective_role"' in labels and 'data-field="system_role"' in labels
+        assert 'data-col="system_role"' in labels and 'syncVisibleColumns' in (ROOT / 'creator_hub' / 'static' / 'review.js').read_text(encoding='utf-8')
+        assert hub.classification_list(page=1,page_size=30,sort='system_role',direction='asc')['total'] == cl_all['total']
 
         disc = (tmp / "dashboard" / "discovery.html").read_text(encoding="utf-8")
         assert "近7天" in disc and "近14天" not in disc
@@ -415,7 +674,7 @@ def main():
         assert '已保存的发现记录 · 博主' in disc and '已保存的发现记录 · 视频命中' in disc
         assert 'id="discovery-search"' in disc and 'id="discovery-current-creators"' in disc and 'id="discovery-saved-creators"' in disc and 'id="discovery-saved-videos"' in disc
         assert 'data-section-nav="discovery-search"' in disc and 'section_nav.js' in disc
-        assert '<th>原关键词</th><th>关键词来源</th><th>搜索批次</th>' in disc
+        assert '<th data-field="query">原关键词</th>' not in disc and '<th data-field="run">搜索批次</th>' not in disc and '博主 / 首次重复' not in disc
         assert "savedDiscoveryPageSizeConfirm" in disc and "savedDiscoveryFirst" in disc and "savedDiscoveryLast" in disc and "savedDiscoveryJump" in disc
         assert "liveDiscoveryPageSizeConfirm" in disc and "liveDiscoveryFirst" in disc and "liveDiscoveryLast" in disc and "liveDiscoveryJump" in disc
         saved_section = disc.split("已保存的发现记录", 1)[1]
@@ -433,6 +692,8 @@ def main():
         assert "/api/settings/get" in disc_js and "query_profile" in disc_js
         assert "workflow" in disc_js and "永久排除" in disc_js and "首次发现" in disc_js and "重复发现" in disc_js
         assert "/api/creators/batch" in disc_js
+        assert "/api/creators/capture-batch" in disc_js and "FULL_HISTORY_LIMIT" in disc_js
+        assert "入库与抓取 ▾" in disc and "抓取并入库" in disc and "全历史（最多 10,000 条）" in disc
         assert "/api/discovery/creators" in disc_js and "discovery_creators" in disc_js and "discovery_videos" in disc_js
         assert "keyword_source_label" in disc_js and "历史推断" in disc_js
         section_js=(tmp / "dashboard" / "assets" / "section_nav.js").read_text(encoding="utf-8")
@@ -452,25 +713,56 @@ def main():
         assert "UgPhone视频播放量" in metrics_js and "总视频播放量" in metrics_js and "竞品视频播放量" in metrics_js
         assert "sort-active" in metrics_js and "identity-partnered" in metrics_js
         assert "/api/settings/get" in metrics_js and "/api/settings/set" in metrics_js
+        assert "/api/creators/facts" in metrics_js and "/api/metrics/base" in metrics_js and "cdh-data-revision" in metrics_js
         assert "metricDependencies" in metrics_js and "指标分组" in mh and "业务说明" in mh
+
+        sync_html=(tmp / "dashboard" / "sync.html").read_text(encoding="utf-8")
+        maintenance_js=(tmp / "dashboard" / "assets" / "maintenance.js").read_text(encoding="utf-8")
+        assert 'id="healthSelectVisible"' in sync_html and 'id="healthSelectAllResults"' in sync_html and 'id="healthBatchResume"' in sync_html
+        assert "health-select" in maintenance_js and "batchResumeHealth" in maintenance_js and "batchSyncHealth" in maintenance_js and "/api/monitoring/sync" in maintenance_js and "cdh-data-revision" in maintenance_js
+        assert "/api/monitoring/override" in maintenance_js and "batchOverrideHealth" in maintenance_js and "batchClearOverrideHealth" in maintenance_js
+        assert 'id="healthBatchOverride"' in sync_html and 'id="healthManualAvailability"' in sync_html and 'id="healthManualContent"' in sync_html and 'id="healthManualPolicy"' in sync_html
+        assert '/api/dashboard/stats' in server_src and '/api/creators/facts' in server_src and '/api/metrics/base' in server_src and '/api/creators/capture-batch' in server_src
+        assert '/api/monitoring/sync' in server_src and 'Query Details' in server_src and 'Search Requirements' in server_src
+        dashboard_src=(ROOT / "creator_hub" / "dashboard.py").read_text(encoding="utf-8")
+        assert 'discovery_creator_results r' in dashboard_src and 'LIMIT 30' in dashboard_src
+
+        ai_html = (tmp / "dashboard" / "ai.html").read_text(encoding="utf-8")
+        assert "AI 助手" in ai_html and "Ask Hub" in ai_html and "Creator Brief" in ai_html and "AI 搜索 Agent" in ai_html
+        assert 'data-section-nav="ai-status"' in ai_html and 'data-section-nav="ai-history"' in ai_html
+        for anchor in ["ai-status","ai-ask","ai-brief","ai-compare","ai-planner","ai-weekly","ai-result-history","ai-history"]:
+            assert f'id="{anchor}"' in ai_html
+        ai_js=(tmp / "dashboard" / "assets" / "ai_copilot.js").read_text(encoding="utf-8")
+        assert "/api/ai/ask" in ai_js and "/api/ai/creator-brief" in ai_js and "/api/ai/query-search" in ai_js and "/api/ai/models" in ai_js and "/api/ai/test" in ai_js
+        assert "/api/ai/result-set" in ai_js and "/api/ai/result-history" in ai_js and "/api/creators/suggest" in ai_js and "导出当前结果 XLSX" in ai_js
+        assert "AI 搜索要求（可选）" in ai_html and "picker-locks" in ai_html and "AI 检索历史" in ai_html
+        assert "最近上传轻量抽样" in ai_html and "综合适配分" in ai_js and "local_data_status" in ai_js and "objective_fit_score" in ai_js
+        assert "brand_safety_score" in ai_js and "continuity_fit_score" in ai_js and "profile_verification_status" in ai_js
+        assert "待验证" in ai_js and "不计为过滤失败" in ai_js
+        ai_service_src=(ROOT / "creator_hub" / "ai" / "service.py").read_text(encoding="utf-8")
+        assert "AI 请求重试" in ai_service_src and "channel_topic_context" in ai_service_src and "profile_budget" in ai_service_src
 
         creator_html = (tmp / "dashboard" / "creators" / (cid + ".html")).read_text(encoding="utf-8")
         assert 'id="detailFilterConditions"' in creator_html and "detailAddFilter" in creator_html
         assert 'data-section-nav=' not in creator_html  # detail page keeps the active top-level item but no invalid overview anchors
         assert "detailPageSizeConfirm" in creator_html and "detailFirst" in creator_html and "detailLast" in creator_html and "detailJump" in creator_html
         assert "UgPhone优先 + 播放量" in creator_html and "creator_detail.js" in creator_html
+        assert "AI 可选增强" in creator_html and "../ai.html?brief=" in creator_html
 
         sync_html = (tmp / "dashboard" / "sync.html").read_text(encoding="utf-8")
         assert "syncPageSizeConfirm" in sync_html and "syncFirst" in sync_html and "syncLast" in sync_html and "syncJump" in sync_html
         assert 'id="syncExport"' in sync_html and 'id="quotaExport"' in sync_html
         assert 'id="sync-health"' in sync_html and 'id="sync-database"' in sync_html and 'id="sync-maintenance"' in sync_html
         assert "监控健康" in sync_html and "数据库健康" in sync_html and "Snapshot" in sync_html
+        assert "商业表现数据" in sync_html and 'id="businessImportFile"' in sync_html and 'business_metrics.js' in sync_html
         assert 'id="healthPageSize"' in sync_html and 'id="healthPageSizeConfirm"' in sync_html
         assert 'id="healthFirst"' in sync_html and 'id="healthLast"' in sync_html and 'id="healthJump"' in sync_html and 'id="healthSummary"' in sync_html
         maint_js=(tmp / "dashboard" / "assets" / "maintenance.js").read_text(encoding="utf-8")
         assert "/api/monitoring/health" in maint_js and "/api/maintenance/backup" in maint_js and "/api/maintenance/snapshots" in maint_js
         assert "page_size:healthSize" in maint_js and "healthPageSizeConfirm" in maint_js
         assert 'runtimeStatus' in index and 'runtime_status.js' in index and 'export_tools.js' in index
+        job_js=(tmp / "dashboard" / "assets" / "job_progress.js").read_text(encoding="utf-8")
+        assert "/api/jobs/list" in job_js and "任务中心" in job_js and "cdhJobDock" in job_js
         assert dash["metric_data_mode"] == "python_preaggregated"
 
         exp_xlsx = export_all(db, tmp / "exports_xlsx", "xlsx")
@@ -512,12 +804,12 @@ def main():
 
         with sqlite3.connect(db) as conn:
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        required = {"creators", "videos", "creator_snapshots", "video_snapshots", "discovery_runs", "discovery_creator_results", "discovery_hits", "label_suggestions", "video_labels", "video_label_audit", "sync_runs", "app_settings", "creator_workflow", "creator_workflow_audit", "creator_discovery_summary", "creator_sync_attempts", "maintenance_runs", "backup_registry"}
+        required = {"creators", "videos", "creator_snapshots", "video_snapshots", "discovery_runs", "discovery_creator_results", "discovery_hits", "label_suggestions", "video_labels", "video_label_audit", "sync_runs", "app_settings", "creator_workflow", "creator_workflow_audit", "creator_discovery_summary", "creator_sync_attempts", "maintenance_runs", "backup_registry", "ai_runs", "ai_findings", "ai_evidence", "ai_feedback", "ai_cache", "ai_result_sets", "ai_result_items", "creator_business_metrics", "saved_views", "job_runs", "creator_availability_overrides", "creator_availability_override_audit"}
         assert required <= tables, required - tables
         with sqlite3.connect(db) as conn:
             run_cols={r[1] for r in conn.execute("PRAGMA table_info(discovery_runs)")}
-            assert "base_query_source" in run_cols
-            assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "10"
+            assert {"base_query_source","ai_run_id"} <= run_cols
+            assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "15"
             idx={r[1] for r in conn.execute("PRAGMA index_list('videos')").fetchall()}
             assert "idx_videos_published" in idx
             sidx={r[1] for r in conn.execute("PRAGMA index_list('label_suggestions')").fetchall()}
@@ -528,7 +820,7 @@ def main():
 
         sync_html=(tmp / "dashboard" / "sync.html").read_text(encoding="utf-8")
         assert 'data-section-nav="sync-monitoring"' in sync_html and 'data-section-nav="sync-quota"' in sync_html
-        for anchor in ["sync-monitoring","sync-health","sync-database","sync-maintenance","sync-runs","sync-quota"]:
+        for anchor in ["sync-monitoring","sync-health","sync-business","sync-database","sync-maintenance","sync-runs","sync-quota"]:
             assert f'id="{anchor}"' in sync_html
         section_nav_js=(tmp / "dashboard" / "assets" / "section_nav.js").read_text(encoding="utf-8")
         assert "aria-current" in section_nav_js and "scrollIntoView" in section_nav_js

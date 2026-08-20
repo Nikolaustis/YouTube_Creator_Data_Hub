@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import urllib.request
+import urllib.error
 import uuid
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -57,7 +58,7 @@ class CreatorHub:
 
 
     # ---------- persistent user configuration ----------
-    _SETTING_KEYS = {"secondary_metrics", "query_profile", "dashboard_preferences"}
+    _SETTING_KEYS = {"secondary_metrics", "query_profile", "dashboard_preferences", "ai_config"}
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         if key not in self._SETTING_KEYS:
@@ -72,7 +73,7 @@ class CreatorHub:
         if key=="secondary_metrics":
             from .metric_config import validate_metric_config
             value=validate_metric_config(value)
-        if key in {"query_profile","dashboard_preferences"} and not isinstance(value,dict):
+        if key in {"query_profile","dashboard_preferences","ai_config"} and not isinstance(value,dict):
             raise ValueError("setting value must be an object")
         at=now_utc()
         with connect(self.db_path) as conn:
@@ -85,7 +86,81 @@ class CreatorHub:
             rows=conn.execute("SELECT key,value_json,updated_at FROM app_settings ORDER BY key").fetchall()
         return {r["key"]:{"value":json_load(r["value_json"],None),"updated_at":r["updated_at"]} for r in rows}
 
+    # ---------- business metrics / saved workspace views ----------
+    def import_business_metrics(self, source: str | Path, *, source_type: str="manual_import", progress=None) -> dict[str,Any]:
+        from .importers import import_business_metrics
+        return import_business_metrics(self,source,source_type=source_type,progress=progress)
+
+    def creator_business_metrics(self, channel_id: str) -> dict[str,Any]:
+        with connect(self.db_path) as conn:
+            creator=conn.execute("SELECT channel_id,channel_title,handle,channel_url FROM creators WHERE channel_id=?",(channel_id,)).fetchone()
+            if not creator: raise ValueError("creator not found")
+            rows=[dict(r) for r in conn.execute("""SELECT id,metric_key,metric_value,currency,period_start,period_end,campaign,region,source_type,source_ref,import_batch,captured_at,note
+                                                  FROM creator_business_metrics WHERE channel_id=?
+                                                  ORDER BY COALESCE(period_end,period_start) DESC,captured_at DESC,id DESC""",(channel_id,)).fetchall()]
+        totals={}
+        for r in rows:
+            key=r["metric_key"]; t=totals.setdefault(key,{"value":0.0,"currencies":set(),"records":0})
+            t["value"]+=float(r.get("metric_value") or 0); t["records"]+=1
+            if r.get("currency"): t["currencies"].add(r["currency"])
+        for t in totals.values(): t["currencies"]=sorted(t["currencies"])
+        return {"creator":dict(creator),"totals":totals,"rows":rows}
+
+    def saved_views(self, page_key: str) -> list[dict[str,Any]]:
+        with connect(self.db_path) as conn:
+            rows=conn.execute("SELECT id,page_key,name,config_json,created_at,updated_at FROM saved_views WHERE page_key=? ORDER BY updated_at DESC,name",(page_key,)).fetchall()
+        return [{**dict(r),"config":json_load(r["config_json"],{})} for r in rows]
+
+    def save_view(self, page_key: str, name: str, config: dict[str,Any]) -> dict[str,Any]:
+        page_key=str(page_key or "").strip(); name=" ".join(str(name or "").split()).strip()
+        if not page_key or not name: raise ValueError("page_key and name are required")
+        if not isinstance(config,dict): raise ValueError("view config must be an object")
+        at=now_utc()
+        with connect(self.db_path) as conn:
+            conn.execute("""INSERT INTO saved_views(page_key,name,config_json,created_at,updated_at) VALUES(?,?,?,?,?)
+                          ON CONFLICT(page_key,name) DO UPDATE SET config_json=excluded.config_json,updated_at=excluded.updated_at""",(page_key,name,json_dump(config),at,at))
+            row=conn.execute("SELECT id,page_key,name,config_json,created_at,updated_at FROM saved_views WHERE page_key=? AND name=?",(page_key,name)).fetchone(); conn.commit()
+        return {**dict(row),"config":json_load(row["config_json"],{})}
+
+    def delete_view(self, view_id: int) -> dict[str,Any]:
+        with connect(self.db_path) as conn:
+            cur=conn.execute("DELETE FROM saved_views WHERE id=?",(int(view_id),)); conn.commit()
+        return {"deleted":int(cur.rowcount or 0),"id":int(view_id)}
+
     # ---------- normalization / persistence ----------
+    # ---------- optional AI copilot (lazy; core does not depend on an AI SDK) ----------
+    def _ai(self):
+        from .ai.service import AICopilot
+        return AICopilot(self)
+
+    def ai_status(self): return self._ai().status()
+    def configure_ai(self, patch, api_key=None, clear_api_key=False): return self._ai().configure(patch, api_key=api_key, clear_api_key=clear_api_key)
+    def ai_models(self, patch=None, api_key=None): return self._ai().available_models(patch or {}, api_key=api_key)
+    def ai_test(self): return self._ai().test_connection(force=True)
+    def ai_creator_brief(self, ref, force=False): return self._ai().creator_brief(ref, force=force)
+    def ai_compare_creators(self, refs, force=False): return self._ai().compare_creators(refs, force=force)
+    def ai_query_planner(self, query, language="en", objective="creator discovery", max_queries=12, force=False): return self._ai().query_planner(query, language=language, objective=objective, max_queries=max_queries, force=force)
+    def ai_query_search(self, query, language="en", objective="creator discovery", max_queries=12, max_results=25, lookback_days=None, target_country=None, target_group=None, force=False, progress=None): return self._ai().query_search(query, language=language, objective=objective, max_queries=max_queries, max_results=max_results, lookback_days=lookback_days, target_country=target_country, target_group=target_group, force=force, progress=progress)
+    def ai_ask(self, question, force=False): return self._ai().ask_hub(question, force=force)
+    def ai_weekly_brief(self, force=False): return self._ai().weekly_brief(force=force)
+    def ai_history(self, page=1, page_size=30): return self._ai().history(page=page, page_size=page_size)
+    def ai_result_set(self, result_set_id, page=1, page_size=30, search="", conditions=None, sort="rank", direction="asc"): return self._ai().result_set_list(result_set_id,page=page,page_size=page_size,search=search,conditions=conditions or [],sort=sort,direction=direction)
+    def ai_result_history(self, page=1, page_size=30, result_type="", search=""): return self._ai().result_set_history(page=page,page_size=page_size,result_type=result_type,search=search)
+    def ai_result_channel_ids(self, result_set_id, search="", conditions=None): return self._ai().result_set_channel_ids(result_set_id,search=search,conditions=conditions or [])
+    def ai_feedback(self, finding_id, rating, note=""): return self._ai().feedback(finding_id, rating, note)
+
+    def creator_suggestions(self, query: str, *, limit: int=10) -> list[dict[str,Any]]:
+        q=" ".join(str(query or "").split()).strip()
+        if len(q)<1: return []
+        like='%'+q.casefold()+'%'; limit=max(1,min(30,int(limit or 10)))
+        with connect(self.db_path) as conn:
+            rows=conn.execute("""SELECT channel_id,channel_title,handle,country_resolved,country_api,subscriber_count,thumbnail_url
+                                 FROM creators
+                                 WHERE lower(COALESCE(channel_title,'')) LIKE ? OR lower(COALESCE(handle,'')) LIKE ? OR lower(channel_id) LIKE ?
+                                 ORDER BY CASE WHEN lower(COALESCE(channel_title,''))=lower(?) THEN 0 WHEN lower(COALESCE(handle,''))=lower(?) THEN 1 ELSE 2 END, subscriber_count DESC, channel_title
+                                 LIMIT ?""",(like,like,like,q,q,limit)).fetchall()
+        return [dict(r) for r in rows]
+
     @staticmethod
     def _int(value: Any) -> int | None:
         try:
@@ -484,7 +559,7 @@ class CreatorHub:
                           target_country: str | None = None, target_group: str | None = None,
                           lookback_days: int | None = None, from_date: str | None = None,
                           to_date: str | None = None, max_queries: int = 80,
-                          query_language: str | None = None) -> dict[str, Any]:
+                          query_language: str | None = None, progress=None) -> dict[str, Any]:
         """Run one discovery batch and persist both creator-level and video-level evidence.
 
         v1.3+ gives every search a run_id.  Each exact video hit remains in discovery_hits,
@@ -508,7 +583,8 @@ class CreatorHub:
                          (run_id,base,search_source,language or '',query_language or language or '',json_dump(normalized),target_group or '',target_country or '',region or '',lookback_days,from_date or '',to_date or '',int(max_results),found_at,'running'))
             conn.commit()
         merged: dict[str,dict[str,Any]]={}; total_hits=0; executed=[]; errors=[]
-        for q in normalized:
+        if progress: progress(stage="YouTube 搜索",message=f"准备执行 {len(normalized)} 个 Query",current=0,total=len(normalized))
+        for qi,q in enumerate(normalized,1):
             try:
                 r=self.discover(q,max_results=max_results,region=region,language=language,add=False,
                     search_source=search_source,target_country=target_country,target_group=target_group,
@@ -519,6 +595,7 @@ class CreatorHub:
                 if "quota" in str(e).lower() or "budget" in str(e).lower(): break
                 continue
             executed.append(q); total_hits+=int(r.get("hits") or 0)
+            if progress: progress(stage="YouTube 搜索",message=f"已执行 {qi}/{len(normalized)} 个 Query · 命中视频 {total_hits} 条 · 去重博主 {len(merged)} 个",current=qi,total=len(normalized),hits=total_hits)
             for c0 in r.get("results") or []:
                 c=dict(c0); cid=c.get("channel_id") or c.get("channel_title") or c.get("video_id")
                 if not cid: continue
@@ -551,6 +628,7 @@ class CreatorHub:
             c['discovery_run_count']=int(sm.get('discovery_run_count') or 1);c['first_seen_at']=sm.get('first_seen_at') or found_at;c['last_seen_at']=sm.get('last_seen_at') or found_at
             c['discovery_freshness']='first' if c['discovery_run_count']<=1 else 'repeat';c['hidden_by_default']=c['workflow_status']=='excluded'
         result=sorted(merged.values(),key=lambda x:(float(x.get('pre_score') or 0),int(x.get('query_coverage') or 0)),reverse=True)
+        if progress: progress(stage="保存发现结果",message=f"搜索完成 · {len(executed)} 个 Query · {total_hits} 条视频 · {len(merged)} 个博主",current=len(normalized),total=len(normalized),percent=100)
         return {"run_id":run_id,"query":base,"queries_requested":normalized,"queries_executed":executed,"query_count":len(executed),
                 "hits":total_hits,"unique_creators":len(merged),"added_to_monitoring":0,"found_at":found_at,
                 "errors":errors,"results":result}
@@ -578,7 +656,7 @@ class CreatorHub:
         processed=self.hydrate_videos(ids)
         at=now_utc();cur=parse_iso(at);hours=self._sync_due_hours(priority or "normal","incremental");nxt=(cur+timedelta(hours=hours)).isoformat().replace("+00:00","Z") if cur else None
         with connect(self.db_path) as conn:
-            conn.execute("UPDATE creators SET last_synced_at=?,last_sync_attempt_at=?,last_sync_status='complete',last_sync_error=NULL,sync_error_type=NULL,consecutive_sync_failures=0,next_retry_at=NULL,next_sync_at=?,sync_suspended=0 WHERE channel_id=?",(at,at,nxt,cid)); conn.commit()
+            conn.execute("UPDATE creators SET last_synced_at=?,last_sync_attempt_at=?,last_sync_status='complete',last_sync_error=NULL,sync_error_type=NULL,consecutive_sync_failures=0,next_retry_at=NULL,next_sync_at=?,sync_suspended=0,availability_status='available',availability_reason=NULL,availability_source='youtube_api',availability_checked_at=?,availability_failures=0 WHERE channel_id=?",(at,at,nxt,at,cid)); conn.commit()
         return {"channel_id":cid,"videos_processed":processed,"days":days,"from_date":from_date,"to_date":to_date,"full_history":full_history}
 
     def _playlist_video_ids_between(self, channel_id: str, cutoff, upper=None) -> list[str]:
@@ -798,18 +876,61 @@ class CreatorHub:
             conn.execute("UPDATE sync_runs SET finished_at=?,status=?,creators_processed=?,videos_processed=?,quota_units=?,message=? WHERE id=?",(now_utc(),status,creators_done,videos_done,units,message,run_id));conn.commit()
         return {"run_id":run_id,"status":status,"creators_processed":creators_done,"videos_processed":videos_done,"quota_units":units,"errors":errors,"eligible_due":len(channels),"skipped_not_due":skipped_not_due,"retry_wait":retry_wait,"skipped_suspended":skipped_suspended,"force":force}
 
+    def sync_selected(self, channel_ids: list[str], *, mode: str = "incremental", metric_days: int | None = None, all_videos: bool = False, progress=None) -> dict[str, Any]:
+        """Immediately sync explicitly selected monitored Creators.
+
+        This bypasses cadence/retry waiting because the operator explicitly requested a refresh.
+        A successful run clears prior retry/suspension state through _record_sync_success.
+        """
+        ids=list(dict.fromkeys(str(x).strip() for x in channel_ids if str(x).strip()))
+        if not ids:return {"status":"complete","requested":0,"creators_processed":0,"videos_processed":0,"errors":[]}
+        mode=str(mode or "incremental").replace("_","-")
+        allowed={"incremental","new","metrics-only","metrics","channel-only","channel","full-history","full"}
+        if mode not in allowed:raise ValueError("unsupported sync mode")
+        started=now_utc()
+        with connect(self.db_path) as conn:
+            marks=','.join('?' for _ in ids)
+            known={r[0] for r in conn.execute(f"SELECT channel_id FROM creators WHERE monitoring_enabled=1 AND channel_id IN ({marks})",tuple(ids)).fetchall()}
+            selected=[x for x in ids if x in known]
+            run_id=conn.execute("INSERT INTO sync_runs(mode,target,started_at,status) VALUES(?,?,?,?)",(mode,f"selected:{len(selected)}",started,"running")).lastrowid
+            conn.commit()
+        errors=[];done=0;videos=0
+        if progress: progress(stage="同步 Creator",message=f"准备同步 {len(selected)} 个 Creator",current=0,total=len(selected))
+        for idx,cid in enumerate(selected,1):
+            try:
+                r=self.sync_creator(cid,mode=mode,metric_days=metric_days,all_videos=all_videos,sync_run_id=run_id)
+                done+=1;videos+=int(r.get("videos_processed") or 0)
+            except Exception as e:
+                state=getattr(e,"creator_sync_state",{}) or {};errors.append(f"{cid}: {state.get('error_type') or type(e).__name__}: {e}")
+                if isinstance(e,QuotaBudgetExceeded) or (isinstance(e,YouTubeAPIError) and getattr(e,"reason",None) in {"quotaExceeded","dailyLimitExceeded"}):break
+            if progress: progress(stage="同步 Creator",message=f"已处理 {idx}/{len(selected)} · 成功 {done} · 视频 {videos} · 错误 {len(errors)}",current=idx,total=len(selected),videos_processed=videos,errors_count=len(errors))
+        missing=[x for x in ids if x not in known]
+        errors.extend(f"{x}: not monitored or not in creator library" for x in missing)
+        status="complete" if not errors else ("partial" if done else "failed")
+        units=self.api.usage.units if self._api else 0
+        with connect(self.db_path) as conn:
+            conn.execute("UPDATE sync_runs SET finished_at=?,status=?,creators_processed=?,videos_processed=?,quota_units=?,message=? WHERE id=?",(now_utc(),status,done,videos,units,("\n".join(errors))[:10000],run_id));conn.commit()
+        return {"run_id":run_id,"status":status,"requested":len(ids),"eligible":len(selected),"creators_processed":done,"videos_processed":videos,"quota_units":units,"errors":errors,"mode":mode}
+
     # ---------- offline classification ----------
-    def reclassify_videos(self, *, only_missing: bool = False, limit: int | None = None, batch_size: int = 2000) -> dict[str, Any]:
+    def reclassify_videos(self, *, only_missing: bool = False, limit: int | None = None, batch_size: int = 2000, progress=None) -> dict[str, Any]:
         """Re-run the deterministic UgPhone/competitor/daily classifier from stored metadata.
 
         No YouTube API request is made. Human corrections in video_labels are not
         changed; only label_suggestions is refreshed.
         """
+        with connect(self.db_path) as conn:
+            total_target=int(conn.execute("SELECT COUNT(*) FROM videos" if not only_missing else "SELECT COUNT(*) FROM videos v LEFT JOIN label_suggestions s ON s.video_id=v.video_id WHERE s.video_id IS NULL").fetchone()[0])
+        if limit is not None: total_target=min(total_target,max(0,int(limit)))
+        if progress: progress(stage="离线系统分类",message=f"准备重新识别 {total_target} 条视频",current=0,total=total_target)
         processed = 0
+        changed = 0
         offset = 0
         while True:
             with connect(self.db_path) as conn:
-                sql = """SELECT v.video_id,v.channel_id,v.title,v.description,v.tags_json
+                sql = """SELECT v.video_id,v.channel_id,v.title,v.description,v.tags_json,
+                                s.suggested_role AS old_suggested_role,s.brands_json AS old_brands_json,
+                                s.confidence AS old_confidence,s.evidence_json AS old_evidence_json,s.rule_version AS old_rule_version
                          FROM videos v LEFT JOIN label_suggestions s ON s.video_id=v.video_id"""
                 params: list[Any] = []
                 if only_missing:
@@ -833,9 +954,17 @@ class CreatorHub:
                     "description": r["description"] or "",
                     "tags": json_load(r["tags_json"], []),
                 }, self.brand_cfg)
+                new_brands = json_dump(suggestion.get("brands") or [])
+                new_evidence = json_dump(suggestion.get("evidence") or [])
+                if (r["old_suggested_role"] != suggestion["suggested_role"] or
+                    (r["old_brands_json"] or "[]") != new_brands or
+                    r["old_confidence"] != suggestion["confidence"] or
+                    (r["old_evidence_json"] or "[]") != new_evidence or
+                    r["old_rule_version"] != suggestion["rule_version"]):
+                    changed += 1
                 payload.append((
-                    r["video_id"], suggestion["suggested_role"], json_dump(suggestion.get("brands") or []),
-                    suggestion["confidence"], json_dump(suggestion.get("evidence") or []),
+                    r["video_id"], suggestion["suggested_role"], new_brands,
+                    suggestion["confidence"], new_evidence,
                     suggestion["generated_at"], suggestion["rule_version"],
                 ))
             with connect(self.db_path) as conn:
@@ -858,7 +987,7 @@ class CreatorHub:
                 offset += len(rows)
             if len(rows) < take:
                 break
-        return {"videos_reclassified": processed, "only_missing": only_missing, "api_calls": 0, "rule_version": self.brand_cfg.get("rule_version")}
+        return {"videos_reclassified": processed, "changed": changed, "only_missing": only_missing, "api_calls": 0, "rule_version": self.brand_cfg.get("rule_version")}
 
     # ---------- video classification / review ----------
     def classification_stats(self) -> dict[str, int]:
@@ -905,8 +1034,17 @@ class CreatorHub:
 
         def cexpr(cond:dict[str,Any]):
             field=str(cond.get("field") or ""); value=str(cond.get("value") or "")
-            if field=="role": return "COALESCE(l.human_role,s.suggested_role,'pending')=?",[value]
+            if field in {"role","effective_role"}: return "COALESCE(l.human_role,s.suggested_role,'pending')=?",[value]
             if field=="system_role": return "COALESCE(s.suggested_role,'pending')=?",[value]
+            if field=="classification_source":
+                if value=="human": return "l.video_id IS NOT NULL",[]
+                if value=="system": return "l.video_id IS NULL AND s.video_id IS NOT NULL",[]
+                if value=="none": return "l.video_id IS NULL AND s.video_id IS NULL",[]
+                return "1=1",[]
+            if field=="human_system_mismatch":
+                if value in {"1","true","yes","mismatch"}: return "l.video_id IS NOT NULL AND COALESCE(l.human_role,'')<>COALESCE(s.suggested_role,'pending')",[]
+                if value in {"0","false","no","match"}: return "l.video_id IS NOT NULL AND COALESCE(l.human_role,'')=COALESCE(s.suggested_role,'pending')",[]
+                return "1=1",[]
             if field=="brand": return "instr(lower(COALESCE(l.brands_json,s.brands_json,'')),?)>0",[value.lower()]
             if field=="review_status":
                 if value=="pending_review": return "(l.video_id IS NULL AND (COALESCE(s.suggested_role,'pending')='pending' OR s.confidence='review'))",[]
@@ -937,7 +1075,7 @@ class CreatorHub:
 
         order_map={
             "published":"v.published_at", "views":"v.current_views", "likes":"v.current_likes", "comments":"v.current_comments", "duration":"v.duration_seconds", "creator":"c.channel_title",
-            "title":"v.title", "role":"COALESCE(l.human_role,s.suggested_role,'pending')",
+            "title":"v.title", "role":"COALESCE(l.human_role,s.suggested_role,'pending')", "system_role":"COALESCE(s.suggested_role,'pending')",
             "review_status":"CASE WHEN l.video_id IS NOT NULL THEN 2 WHEN COALESCE(s.suggested_role,'pending')='pending' OR s.confidence='review' THEN 1 ELSE 0 END"
         }
         order=order_map.get(sort,"v.published_at"); d="ASC" if str(direction).lower()=="asc" else "DESC"
@@ -947,8 +1085,8 @@ class CreatorHub:
         # Build the lightest possible COUNT query. The unfiltered initial page is a
         # direct COUNT(videos), while video-only numeric/date filters also avoid label joins.
         cond_fields={str(c.get("field") or "") for c in conds}
-        need_l=bool(role or brand or cond_fields & {"role","brand","review_status"})
-        need_s=bool(role or brand or cond_fields & {"role","system_role","brand","review_status","confidence"}) or need_l
+        need_l=bool(role or brand or cond_fields & {"role","effective_role","brand","review_status","classification_source","human_system_mismatch"})
+        need_s=bool(role or brand or cond_fields & {"role","effective_role","system_role","brand","review_status","confidence","classification_source","human_system_mismatch"}) or need_l
         need_c=bool(search)
         count_from="FROM videos v"
         if need_s: count_from+=" LEFT JOIN label_suggestions s ON s.video_id=v.video_id"
@@ -971,7 +1109,10 @@ class CreatorHub:
             x["human_brands"]=human_brands
             x["brands"]=human_brands if x.get("human_role") else system_brands
             x["evidence"]=json_load(x.pop("evidence_json"),[])
-            x["final_role"]=x.get("human_role") or x.get("suggested_role") or "pending"
+            x["effective_role"]=x.get("human_role") or x.get("suggested_role") or "pending"
+            x["final_role"]=x["effective_role"]  # compatibility alias; business logic uses effective_role.
+            x["classification_source"]="human" if x.get("human_role") else ("system" if x.get("suggested_role") else "none")
+            x["human_system_mismatch"]=bool(x.get("human_role") and x.get("human_role")!=(x.get("suggested_role") or "pending"))
             x["manual_reviewed"]=bool(x.get("human_role"))
             x["requires_review"]=(not x["manual_reviewed"] and ((x.get("suggested_role") or "pending")=="pending" or x.get("confidence")=="review"))
             x["review_status"]="manual_reviewed" if x["manual_reviewed"] else ("pending_review" if x["requires_review"] else "system_only")
@@ -998,7 +1139,7 @@ class CreatorHub:
             use_role=role or s["suggested_role"]; use_brands=brands if brands is not None else json_load(s["brands_json"],[]); note="人工复核修正系统分类"
         return self.label_video(video_id,use_role,brands=use_brands,actor=actor,note=note)
 
-    def reclassify_review_queue(self, *, batch_size: int = 500) -> dict[str, Any]:
+    def reclassify_review_queue(self, *, batch_size: int = 500, progress=None) -> dict[str, Any]:
         """Re-run the current deterministic classifier for every unresolved review item.
 
         This is fully offline and does not consume YouTube API quota. Items that still
@@ -1008,6 +1149,7 @@ class CreatorHub:
         with connect(self.db_path) as conn:
             ids=[r[0] for r in conn.execute("""SELECT s.video_id FROM label_suggestions s LEFT JOIN video_labels l ON l.video_id=s.video_id WHERE l.video_id IS NULL AND (s.suggested_role='pending' OR s.confidence='review') ORDER BY s.video_id""").fetchall()]
         before=len(ids);processed=0
+        if progress: progress(stage="重新识别待复核",message=f"准备处理 {before} 条待复核视频",current=0,total=before)
         for i in range(0,len(ids),max(1,batch_size)):
             chunk=ids[i:i+max(1,batch_size)]; marks=','.join('?' for _ in chunk)
             with connect(self.db_path) as conn:
@@ -1021,6 +1163,7 @@ class CreatorHub:
                     conn.executemany("""INSERT INTO label_suggestions(video_id,suggested_role,brands_json,confidence,evidence_json,generated_at,rule_version) VALUES(?,?,?,?,?,?,?)
                     ON CONFLICT(video_id) DO UPDATE SET suggested_role=excluded.suggested_role,brands_json=excluded.brands_json,confidence=excluded.confidence,evidence_json=excluded.evidence_json,generated_at=excluded.generated_at,rule_version=excluded.rule_version""",payload);conn.commit()
             processed+=len(rows)
+            if progress: progress(stage="重新识别待复核",message=f"已处理 {processed}/{before}",current=processed,total=before)
         with connect(self.db_path) as conn:
             after=conn.execute("""SELECT COUNT(*) FROM label_suggestions s LEFT JOIN video_labels l ON l.video_id=s.video_id WHERE l.video_id IS NULL AND (s.suggested_role='pending' OR s.confidence='review')""").fetchone()[0]
         return {"videos_reclassified":processed,"before":before,"after":int(after),"api_calls":0,"rule_version":self.brand_cfg.get("rule_version")}
@@ -1249,21 +1392,33 @@ class CreatorHub:
                     x=dict(r);x["status_label"]=self._workflow_label(x.get("status"));out[x["channel_id"]]=x
         return out
 
-    def batch_creators(self, channel_ids: list[str], action: str, *, value: str = "", actor: str = "dashboard") -> dict[str, Any]:
+    def batch_creators(self, channel_ids: list[str], action: str, *, value: str = "", actor: str = "dashboard", progress=None) -> dict[str, Any]:
         ids=list(dict.fromkeys(str(x).strip() for x in channel_ids if str(x).strip()))
         if not ids:return {"processed":0,"errors":[]}
         errors=[];done=0
-        for cid in ids:
+        if progress: progress(stage="批量 Creator 操作",message=f"准备处理 {len(ids)} 个 Creator",current=0,total=len(ids))
+        for idx,cid in enumerate(ids,1):
             try:
                 if action=="workflow": self.set_creator_workflow(cid,value or "unreviewed",actor=actor)
                 elif action=="add": self.ensure_creator(cid,monitoring=True,source="batch_add")
-                elif action in {"monitor_on","monitor_off"}:
+                elif action=="monitor_on":
+                    # Existing library rows are a pure SQLite update; discovery-only rows are materialized once.
                     with connect(self.db_path) as conn:
-                        conn.execute("UPDATE creators SET monitoring_enabled=? WHERE channel_id=?",(1 if action=="monitor_on" else 0,cid));conn.commit()
+                        exists=conn.execute("SELECT 1 FROM creators WHERE channel_id=?",(cid,)).fetchone()
+                        if exists:
+                            conn.execute("UPDATE creators SET monitoring_enabled=1 WHERE channel_id=?",(cid,));conn.commit()
+                    if not exists:self.ensure_creator(cid,monitoring=True,source="batch_monitor")
+                elif action=="monitor_off":
+                    with connect(self.db_path) as conn:
+                        conn.execute("UPDATE creators SET monitoring_enabled=0 WHERE channel_id=?",(cid,));conn.commit()
                 elif action=="priority":
                     if value not in {"high","normal","low","archive"}:raise ValueError("invalid priority")
+                    # Avoid an API refresh for existing rows; only discovery-only selections need materialization.
                     with connect(self.db_path) as conn:
-                        conn.execute("UPDATE creators SET priority=? WHERE channel_id=?",(value,cid));conn.commit()
+                        exists=conn.execute("SELECT 1 FROM creators WHERE channel_id=?",(cid,)).fetchone()
+                        if exists:
+                            conn.execute("UPDATE creators SET priority=? WHERE channel_id=?",(value,cid));conn.commit()
+                    if not exists:self.ensure_creator(cid,monitoring=True,priority=value,source="batch_priority")
                 elif action=="tag":
                     if not value.strip():raise ValueError("tag required")
                     with connect(self.db_path) as conn:
@@ -1276,7 +1431,36 @@ class CreatorHub:
                 else: raise ValueError("unsupported creator batch action")
                 done+=1
             except Exception as e: errors.append(f"{cid}: {type(e).__name__}: {e}")
+            if progress: progress(stage="批量 Creator 操作",message=f"已处理 {idx}/{len(ids)} · 成功 {done} · 错误 {len(errors)}",current=idx,total=len(ids),errors_count=len(errors))
         return {"processed":done,"requested":len(ids),"errors":errors}
+
+    def batch_capture_creators(self, channel_ids: list[str], *, window: str = "30", from_date: str = "", to_date: str = "", priority: str = "normal", actor: str = "dashboard-batch", progress=None) -> dict[str, Any]:
+        """Capture the same selected time window for multiple Creators.
+
+        The batch is intentionally executed Creator-by-Creator so API failures remain isolated;
+        Dashboard files are never rebuilt inside this loop.
+        """
+        ids=list(dict.fromkeys(str(x).strip() for x in channel_ids if str(x).strip()))
+        if not ids:return {"processed":0,"requested":0,"videos_processed":0,"errors":[],"results":[]}
+        mode=str(window or "30")
+        if mode not in {"7","30","60","90","180","365","date","date_range","full"}:
+            raise ValueError("unsupported capture window")
+        if mode in {"date","date_range"}:
+            if not from_date or not to_date: raise ValueError("date range requires from_date and to_date")
+            if str(from_date)>str(to_date): raise ValueError("from_date cannot be later than to_date")
+        if priority not in {"high","normal","low","archive"}: raise ValueError("invalid priority")
+        errors=[];done=0;videos=0;results=[]
+        if progress: progress(stage="抓取并入库",message=f"准备抓取 {len(ids)} 个 Creator",current=0,total=len(ids))
+        for idx,cid in enumerate(ids,1):
+            try:
+                if mode=="full": res=self.capture_window(cid,full_history=True,priority=priority)
+                elif mode in {"date","date_range"}: res=self.capture_window(cid,from_date=from_date,to_date=to_date,priority=priority)
+                else: res=self.capture_window(cid,days=int(mode),priority=priority)
+                done+=1;videos+=int(res.get("videos_processed") or 0);results.append(res)
+            except Exception as e:
+                errors.append(f"{cid}: {type(e).__name__}: {e}")
+            if progress: progress(stage="抓取并入库",message=f"已处理 {idx}/{len(ids)} · 成功 {done} · 视频 {videos} · 错误 {len(errors)}",current=idx,total=len(ids),videos_processed=videos,errors_count=len(errors))
+        return {"processed":done,"requested":len(ids),"videos_processed":videos,"errors":errors,"results":results,"window":mode,"from_date":from_date or None,"to_date":to_date or None}
 
     def classification_matching_ids(self, *, search: str = "", conditions: list[dict[str,Any]] | None = None, exclude_ids: list[str] | None = None) -> list[str]:
         """Resolve all video ids matching the current classification filter without browser-side enumeration."""
@@ -1285,8 +1469,17 @@ class CreatorHub:
             q=f"%{search.lower()}%";where.append("(lower(COALESCE(v.title,'')) LIKE ? OR lower(COALESCE(c.channel_title,'')) LIKE ? OR lower(v.video_id) LIKE ?)");params.extend([q,q,q])
         def cexpr(cond:dict[str,Any]):
             field=str(cond.get("field") or "");value=str(cond.get("value") or "")
-            if field=="role":return "COALESCE(l.human_role,s.suggested_role,'pending')=?",[value]
+            if field in {"role","effective_role"}:return "COALESCE(l.human_role,s.suggested_role,'pending')=?",[value]
             if field=="system_role":return "COALESCE(s.suggested_role,'pending')=?",[value]
+            if field=="classification_source":
+                if value=="human":return "l.video_id IS NOT NULL",[]
+                if value=="system":return "l.video_id IS NULL AND s.video_id IS NOT NULL",[]
+                if value=="none":return "l.video_id IS NULL AND s.video_id IS NULL",[]
+                return "1=1",[]
+            if field=="human_system_mismatch":
+                if value in {"1","true","yes","mismatch"}:return "l.video_id IS NOT NULL AND COALESCE(l.human_role,'')<>COALESCE(s.suggested_role,'pending')",[]
+                if value in {"0","false","no","match"}:return "l.video_id IS NOT NULL AND COALESCE(l.human_role,'')=COALESCE(s.suggested_role,'pending')",[]
+                return "1=1",[]
             if field=="brand":return "instr(lower(COALESCE(l.brands_json,s.brands_json,'')),?)>0",[value.lower()]
             if field=="review_status":
                 if value=="pending_review":return "(l.video_id IS NULL AND (COALESCE(s.suggested_role,'pending')='pending' OR s.confidence='review'))",[]
@@ -1448,6 +1641,131 @@ class CreatorHub:
             except Exception: pass
         return {"ok":True,"dry_run":False,"video_snapshots_deleted":video_candidates,"creator_snapshots_deleted":creator_candidates,"total_deleted":video_candidates+creator_candidates}
 
+    def _probe_public_channel_page(self, channel_id: str) -> dict[str, Any]:
+        """Best-effort confirmation after channels.list no longer returns a channel.
+
+        An API miss alone never becomes a policy-violation label. Terminal labels require an
+        explicit public YouTube termination/deletion marker; otherwise the channel remains
+        temporarily unavailable and is checked again later.
+        """
+        url=f"https://www.youtube.com/channel/{channel_id}"
+        req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 YouTube-Creator-Data-Hub/3.9.0","Accept-Language":"en-US,en;q=0.9,zh-CN;q=0.7"})
+        try:
+            with urllib.request.urlopen(req,timeout=20) as resp:
+                text=resp.read(2_000_000).decode("utf-8",errors="ignore")
+        except urllib.error.HTTPError as exc:
+            # YouTube may return a useful termination/deletion body together with 4xx.
+            try: text=exc.read(2_000_000).decode("utf-8",errors="ignore")
+            except Exception: text=""
+            if not text:
+                return {"status":"unavailable_pending","reason":f"公开频道页无法确认：HTTP {getattr(exc,'code','error')}","source":"public_page_http_error","terminal":False}
+        except Exception as exc:
+            return {"status":"unavailable_pending","reason":f"公开频道页无法确认：{type(exc).__name__}","source":"public_page_error","terminal":False}
+        t=" ".join(re.sub(r"<[^>]+>"," ",text).casefold().split())
+        community=[
+            "terminated for violating youtube's community guidelines",
+            "terminated due to multiple or severe violations of youtube's policy",
+            "violating youtube’s community guidelines", "violating youtube's community guidelines",
+            "违反 youtube 的《社区准则》", "违反 youtube 社区准则", "违反youtube的《社区准则》"
+        ]
+        copyright=[
+            "terminated because we received multiple third-party claims of copyright infringement",
+            "multiple copyright strikes", "copyright infringement", "因多次侵犯版权", "版权侵权"
+        ]
+        deleted=["this channel does not exist", "this page isn't available", "this page is not available", "该频道不存在", "此频道不存在", "此页面无法使用", "此页面不可用"]
+        if any(x in t for x in community):
+            return {"status":"terminated_community","reason":"YouTube 公开频道页明确显示因违反《社区准则》而终止","source":"public_page","terminal":True}
+        if any(x in t for x in copyright):
+            return {"status":"terminated_copyright","reason":"YouTube 公开频道页明确显示版权相关终止","source":"public_page","terminal":True}
+        if any(x in t for x in deleted):
+            return {"status":"deleted","reason":"YouTube 公开频道页显示频道不存在/页面不可用","source":"public_page","terminal":True}
+        return {"status":"unavailable_pending","reason":"YouTube API 未返回频道；公开页面未提供可可靠识别的终止原因","source":"public_page","terminal":False}
+
+    def _set_creator_availability(self, cid: str, status: str, reason: str, source: str, *, terminal: bool=False, failures: int | None=None) -> None:
+        at=now_utc()
+        with connect(self.db_path) as conn:
+            vals=[status,reason[:1000],source[:80],at]; extra=""
+            if failures is not None:
+                extra=",availability_failures=?"; vals.append(int(failures))
+            if terminal:
+                extra += ",monitoring_enabled=0,sync_suspended=1,next_retry_at=NULL,next_sync_at=NULL"
+            vals.append(cid)
+            conn.execute(f"UPDATE creators SET availability_status=?,availability_reason=?,availability_source=?,availability_checked_at=?{extra} WHERE channel_id=?",tuple(vals));conn.commit()
+
+    def set_creator_availability_override(self, channel_ids: list[str], *, availability_status: str="", content_status: str="", monitoring_policy: str="", note: str="", actor: str="dashboard") -> dict[str, Any]:
+        """Apply an auditable human override without destroying the system-detected channel state."""
+        ids=list(dict.fromkeys(str(x).strip() for x in channel_ids if str(x).strip()))
+        allowed_av={"","available","unavailable_pending","terminated_community","terminated_copyright","deleted","unavailable_unknown"}
+        allowed_content={"","normal","no_public_videos","history_cleared","long_inactive","unknown"}
+        allowed_policy={"","normal","low_frequency","recovery_only","paused","stopped"}
+        availability_status=str(availability_status or "");content_status=str(content_status or "");monitoring_policy=str(monitoring_policy or "")
+        if availability_status not in allowed_av: raise ValueError("unsupported manual availability status")
+        if content_status not in allowed_content: raise ValueError("unsupported manual content status")
+        if monitoring_policy not in allowed_policy: raise ValueError("unsupported manual monitoring policy")
+        at=now_utc(); processed=0
+        with connect(self.db_path) as conn:
+            for cid in ids:
+                exists=conn.execute("SELECT 1 FROM creators WHERE channel_id=?",(cid,)).fetchone()
+                if not exists: continue
+                old=conn.execute("SELECT availability_status,content_status,monitoring_policy,note,actor,updated_at FROM creator_availability_overrides WHERE channel_id=?",(cid,)).fetchone()
+                old_json=json_dump(dict(old)) if old else '{}'
+                new={"availability_status":availability_status or None,"content_status":content_status or None,"monitoring_policy":monitoring_policy or None,"note":str(note or "")[:1000],"actor":str(actor or "dashboard")[:120],"updated_at":at}
+                conn.execute("""INSERT INTO creator_availability_overrides(channel_id,availability_status,content_status,monitoring_policy,note,actor,updated_at) VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(channel_id) DO UPDATE SET availability_status=excluded.availability_status,content_status=excluded.content_status,monitoring_policy=excluded.monitoring_policy,note=excluded.note,actor=excluded.actor,updated_at=excluded.updated_at""",
+                    (cid,new["availability_status"],new["content_status"],new["monitoring_policy"],new["note"],new["actor"],at))
+                conn.execute("INSERT INTO creator_availability_override_audit(channel_id,old_json,new_json,actor,changed_at) VALUES(?,?,?,?,?)",(cid,old_json,json_dump(new),new["actor"],at))
+                terminal=availability_status in {"terminated_community","terminated_copyright","deleted","unavailable_unknown"}
+                if terminal or monitoring_policy in {"stopped","recovery_only"}:
+                    conn.execute("UPDATE creators SET monitoring_enabled=0,sync_suspended=1,next_retry_at=NULL,next_sync_at=NULL WHERE channel_id=?",(cid,))
+                elif monitoring_policy=="paused":
+                    conn.execute("UPDATE creators SET sync_suspended=1,next_retry_at=NULL WHERE channel_id=?",(cid,))
+                elif monitoring_policy=="low_frequency":
+                    conn.execute("UPDATE creators SET monitoring_enabled=1,priority='archive',sync_suspended=0 WHERE channel_id=?",(cid,))
+                elif monitoring_policy=="normal" or availability_status=="available":
+                    conn.execute("UPDATE creators SET monitoring_enabled=1,sync_suspended=0 WHERE channel_id=?",(cid,))
+                processed+=1
+            conn.commit()
+        return {"requested":len(ids),"processed":processed,"availability_status":availability_status,"content_status":content_status,"monitoring_policy":monitoring_policy}
+
+    def clear_creator_availability_override(self, channel_ids: list[str], *, actor: str="dashboard") -> dict[str, Any]:
+        ids=list(dict.fromkeys(str(x).strip() for x in channel_ids if str(x).strip()));at=now_utc();processed=0
+        with connect(self.db_path) as conn:
+            for cid in ids:
+                old=conn.execute("SELECT availability_status,content_status,monitoring_policy,note,actor,updated_at FROM creator_availability_overrides WHERE channel_id=?",(cid,)).fetchone()
+                if not old: continue
+                conn.execute("INSERT INTO creator_availability_override_audit(channel_id,old_json,new_json,actor,changed_at) VALUES(?,?,?,?,?)",(cid,json_dump(dict(old)),'{}',str(actor or 'dashboard')[:120],at))
+                conn.execute("DELETE FROM creator_availability_overrides WHERE channel_id=?",(cid,));processed+=1
+            conn.commit()
+        return {"requested":len(ids),"processed":processed}
+
+    def recheck_channel_availability(self, channel_ids: list[str], *, restore_monitoring: bool=False, progress=None) -> dict[str, Any]:
+        ids=list(dict.fromkeys(str(x).strip() for x in channel_ids if str(x).strip()));results=[];errors=[]
+        if progress: progress(stage="重新检测频道状态",message=f"准备检测 {len(ids)} 个频道",current=0,total=len(ids))
+        for idx,cid in enumerate(ids,1):
+            try:
+                try:
+                    row=self.fetch_channel(cid)
+                    self.upsert_creator(row, monitoring=(True if restore_monitoring else None), source="availability_recheck")
+                    with connect(self.db_path) as conn:
+                        conn.execute("UPDATE creators SET availability_status='available',availability_reason=NULL,availability_source='youtube_api',availability_checked_at=?,availability_failures=0,sync_suspended=0,next_retry_at=NULL,last_sync_error=NULL,sync_error_type=NULL WHERE channel_id=?",(now_utc(),cid))
+                        if restore_monitoring: conn.execute("UPDATE creators SET monitoring_enabled=1 WHERE channel_id=?",(cid,))
+                        conn.commit()
+                    results.append({"channel_id":cid,"availability_status":"available","restored":bool(restore_monitoring)})
+                except Exception as exc:
+                    if self._sync_error_category(exc)!="channel_unavailable": raise
+                    probe=self._probe_public_channel_page(cid)
+                    with connect(self.db_path) as conn:
+                        rr=conn.execute("SELECT availability_failures FROM creators WHERE channel_id=?",(cid,)).fetchone();fails=int(rr[0] or 0)+1 if rr else 1
+                    status=str(probe.get("status") or "unavailable_pending");terminal=bool(probe.get("terminal"))
+                    if status=="unavailable_pending" and fails>=3:
+                        status="unavailable_unknown";terminal=True;probe["reason"]="连续 3 次检测均无法通过 API 获取频道，公开页面也未给出明确终止原因"
+                    self._set_creator_availability(cid,status,str(probe.get("reason") or ""),str(probe.get("source") or "recheck"),terminal=terminal,failures=fails)
+                    results.append({"channel_id":cid,"availability_status":status,"reason":probe.get("reason"),"terminal":terminal})
+            except Exception as exc:
+                errors.append(f"{cid}: {type(exc).__name__}: {exc}")
+            if progress: progress(stage="重新检测频道状态",message=f"已检测 {idx}/{len(ids)} · 错误 {len(errors)}",current=idx,total=len(ids),errors_count=len(errors))
+        return {"requested":len(ids),"processed":len(results),"results":results,"errors":errors}
+
     @staticmethod
     def _sync_error_category(exc: Exception) -> str:
         msg=f"{type(exc).__name__}: {exc}".lower();reason=str(getattr(exc,"reason","") or "").lower()
@@ -1461,44 +1779,78 @@ class CreatorHub:
     def _record_sync_success(self, cid: str, *, mode: str, attempt_id: int | None, videos: int, priority: str) -> None:
         at=now_utc();cur=parse_iso(at);hours=self._sync_due_hours(priority,mode);nxt=(cur+timedelta(hours=hours)).isoformat().replace('+00:00','Z') if cur else None
         with connect(self.db_path) as conn:
-            conn.execute("UPDATE creators SET last_synced_at=?,last_sync_attempt_at=?,last_sync_status='complete',last_sync_error=NULL,sync_error_type=NULL,consecutive_sync_failures=0,next_retry_at=NULL,next_sync_at=?,sync_suspended=0 WHERE channel_id=?",(at,at,nxt,cid))
+            conn.execute("UPDATE creators SET last_synced_at=?,last_sync_attempt_at=?,last_sync_status='complete',last_sync_error=NULL,sync_error_type=NULL,consecutive_sync_failures=0,next_retry_at=NULL,next_sync_at=?,sync_suspended=0,availability_status='available',availability_reason=NULL,availability_source='youtube_api',availability_checked_at=?,availability_failures=0 WHERE channel_id=?",(at,at,nxt,at,cid))
             if attempt_id:conn.execute("UPDATE creator_sync_attempts SET finished_at=?,status='complete',videos_processed=? WHERE id=?",(at,int(videos),attempt_id))
             conn.commit()
 
     def _record_sync_failure(self, cid: str, *, mode: str, attempt_id: int | None, exc: Exception) -> dict[str, Any]:
         at=now_utc();cat=self._sync_error_category(exc);msg=f"{type(exc).__name__}: {exc}"[:3000]
         with connect(self.db_path) as conn:
-            row=conn.execute("SELECT consecutive_sync_failures FROM creators WHERE channel_id=?",(cid,)).fetchone();fail=int(row[0] or 0)+1 if row else 1
-            suspend=1 if fail>=5 and cat not in {"quota","auth"} else 0
-            delays={1:1,2:6,3:24,4:48};delay=delays.get(fail,72)
-            if cat=="quota":delay=6
-            if cat=="auth":delay=24
-            cur=parse_iso(at);retry=(cur+timedelta(hours=delay)).isoformat().replace('+00:00','Z') if cur and not suspend else None
+            row=conn.execute("SELECT consecutive_sync_failures,availability_failures FROM creators WHERE channel_id=?",(cid,)).fetchone();fail=int(row[0] or 0)+1 if row else 1;availability_fail=int(row[1] or 0) if row else 0
+        availability=None
+        if cat=="channel_unavailable":
+            probe=self._probe_public_channel_page(cid);availability_fail+=1
+            av_status=str(probe.get("status") or "unavailable_pending");terminal=bool(probe.get("terminal"))
+            if av_status=="unavailable_pending" and availability_fail>=3:
+                av_status="unavailable_unknown";terminal=True;probe["reason"]="连续 3 次检测均无法通过 API 获取频道，公开页面也未给出明确终止原因"
+            self._set_creator_availability(cid,av_status,str(probe.get("reason") or ""),str(probe.get("source") or "sync_failure"),terminal=terminal,failures=availability_fail)
+            availability={"availability_status":av_status,"availability_reason":probe.get("reason"),"terminal":terminal}
+        suspend=1 if (cat=="channel_unavailable" and availability and availability.get("terminal")) or (fail>=5 and cat not in {"quota","auth"}) else 0
+        delays={1:1,2:6,3:24,4:48};delay=delays.get(fail,72)
+        if cat=="quota":delay=6
+        if cat=="auth":delay=24
+        if cat=="channel_unavailable":delay=24
+        cur=parse_iso(at);retry=(cur+timedelta(hours=delay)).isoformat().replace('+00:00','Z') if cur and not suspend else None
+        with connect(self.db_path) as conn:
             conn.execute("UPDATE creators SET last_sync_attempt_at=?,last_sync_status='failed',last_sync_error=?,sync_error_type=?,consecutive_sync_failures=?,next_retry_at=?,sync_suspended=? WHERE channel_id=?",(at,msg,cat,fail,retry,suspend,cid))
             if attempt_id:conn.execute("UPDATE creator_sync_attempts SET finished_at=?,status='failed',error_type=?,error_message=? WHERE id=?",(at,cat,msg,attempt_id))
             conn.commit()
-        return {"error_type":cat,"failures":fail,"next_retry_at":retry,"sync_suspended":bool(suspend)}
+        return {"error_type":cat,"failures":fail,"next_retry_at":retry,"sync_suspended":bool(suspend),**(availability or {})}
 
     def monitoring_health(self, *, page: int = 1, page_size: int = 30, limit: int | None = None) -> dict[str, Any]:
         if limit is not None: page_size=int(limit)
         page=max(1,int(page or 1)); page_size=max(1,min(5000,int(page_size or 30)))
-        now=parse_iso(now_utc());rows=[];counts={"normal":0,"due":0,"failed":0,"suspended":0,"stale":0,"retry_wait":0}
+        now=parse_iso(now_utc());rows=[];counts={"normal":0,"due":0,"failed":0,"suspended":0,"stale":0,"retry_wait":0,"not_applicable":0}
+        availability_counts={"available":0,"unavailable_pending":0,"terminated_community":0,"terminated_copyright":0,"deleted":0,"unavailable_unknown":0}
+        terminal={"terminated_community","terminated_copyright","deleted","unavailable_unknown"}
         with connect(self.db_path) as conn:
-            data=[dict(r) for r in conn.execute("SELECT channel_id,channel_title,priority,monitoring_enabled,last_synced_at,last_sync_attempt_at,last_sync_status,last_sync_error,sync_error_type,consecutive_sync_failures,next_sync_at,next_retry_at,sync_suspended,channel_data_at,video_metrics_at,classification_data_at,contact_scraped_at FROM creators WHERE monitoring_enabled=1 ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,COALESCE(last_synced_at,'')").fetchall()]
+            data=[dict(r) for r in conn.execute("""SELECT c.channel_id,c.channel_title,c.priority,c.monitoring_enabled,c.last_synced_at,c.last_sync_attempt_at,c.last_sync_status,c.last_sync_error,c.sync_error_type,c.consecutive_sync_failures,c.next_sync_at,c.next_retry_at,c.sync_suspended,c.channel_data_at,c.video_metrics_at,c.classification_data_at,c.contact_scraped_at,c.availability_status,c.availability_reason,c.availability_source,c.availability_checked_at,c.availability_failures,
+                       o.availability_status AS manual_availability_status,o.content_status AS manual_content_status,o.monitoring_policy AS manual_monitoring_policy,o.note AS manual_availability_note,o.actor AS manual_availability_actor,o.updated_at AS manual_availability_updated_at
+                FROM creators c LEFT JOIN creator_availability_overrides o ON o.channel_id=c.channel_id
+                WHERE c.monitoring_enabled=1 OR COALESCE(c.availability_status,'available') IN ('unavailable_pending','terminated_community','terminated_copyright','deleted','unavailable_unknown') OR o.channel_id IS NOT NULL
+                ORDER BY CASE c.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,COALESCE(c.last_synced_at,'')""").fetchall()]
         for r in data:
+            system_av=r.get("availability_status") or "available"
+            manual_av=r.get("manual_availability_status") or ""
+            av=manual_av or system_av
+            availability_counts[av]=availability_counts.get(av,0)+1
             last=parse_iso(r.get("last_synced_at"));hours=self._sync_due_hours(r.get("priority") or "normal","incremental");age=(now-last).total_seconds()/3600 if now and last else None
             retry=parse_iso(r.get("next_retry_at"));due=not last or (age is not None and age>=hours);stale=not last or (age is not None and age>hours+6)
-            if r.get("sync_suspended"):state="suspended"
-            elif r.get("last_sync_status")=="failed" and retry and now and retry>now:state="retry_wait"
-            elif r.get("last_sync_status")=="failed":state="failed"
-            elif stale:state="stale"
-            elif due:state="due"
-            else:state="normal"
-            counts[state]=counts.get(state,0)+1;r["health_state"]=state;r["due_hours"]=hours;r["age_hours"]=round(age,1) if age is not None else None
+            manual_policy=r.get("manual_monitoring_policy") or ""
+            if av in terminal or manual_policy in {"stopped","recovery_only"} or not r.get("monitoring_enabled"):state="not_applicable";reason="频道已停止常规监控；不会进入普通同步重试队列"
+            elif r.get("sync_suspended"):state="suspended";reason="连续失败达到暂停阈值；可恢复后重试"
+            elif r.get("last_sync_status")=="failed" and retry and now and retry>now:state="retry_wait";reason="上次同步失败，尚未到 next_retry_at"
+            elif r.get("last_sync_status")=="failed":state="failed";reason="上次同步失败且已到可再次尝试时间"
+            elif stale:state="stale";reason=f"超过 {hours:g} 小时刷新周期并越过 6 小时调度宽限，或从未成功同步"
+            elif due:state="due";reason=f"已达到 {hours:g} 小时刷新周期，等待常规同步"
+            else:state="normal";reason=f"最近成功同步尚未达到 {hours:g} 小时刷新周期"
+            channel_reason={
+                "available":"频道可通过 YouTube API 正常获取",
+                "unavailable_pending":r.get("availability_reason") or "API 暂时无法取得频道，等待再次确认",
+                "terminated_community":r.get("availability_reason") or "频道因社区准则终止",
+                "terminated_copyright":r.get("availability_reason") or "频道因版权问题终止",
+                "deleted":r.get("availability_reason") or "频道已删除/不存在",
+                "unavailable_unknown":r.get("availability_reason") or "多次无法取得频道且原因未知",
+            }.get(av,r.get("availability_reason") or av)
+            counts[state]=counts.get(state,0)+1
+            r["health_state"]=state;r["health_state_reason"]=reason;r["channel_status"]=av;r["system_channel_status"]=system_av;r["channel_status_source"]="人工覆盖" if manual_av else "系统检测";r["channel_status_reason"]=(r.get("manual_availability_note") or channel_reason) if manual_av else channel_reason
+            r["content_status"]=r.get("manual_content_status") or "normal"
+            r["monitoring_policy"]=manual_policy or ("normal" if r.get("monitoring_enabled") else "stopped")
+            r["monitoring_state"]="monitoring" if r.get("monitoring_enabled") and manual_policy not in {"stopped","recovery_only","paused"} else "stopped";r["due_hours"]=hours;r["age_hours"]=round(age,1) if age is not None else None
             rows.append(r)
-        priority_order={"suspended":0,"failed":1,"retry_wait":2,"stale":3,"due":4,"normal":5};rows.sort(key=lambda x:(priority_order.get(x["health_state"],9),-(x.get("consecutive_sync_failures") or 0),x.get("last_synced_at") or ""))
+        priority_order={"not_applicable":0,"suspended":1,"failed":2,"retry_wait":3,"stale":4,"due":5,"normal":6};rows.sort(key=lambda x:(priority_order.get(x["health_state"],9),-(x.get("consecutive_sync_failures") or 0),x.get("last_synced_at") or ""))
         total=len(rows); pages=max(1,(total+page_size-1)//page_size); page=min(page,pages); start=(page-1)*page_size
-        return {"counts":counts,"total":total,"rows":rows[start:start+page_size],"page":page,"page_size":page_size,"pages":pages,"generated_at":now_utc()}
+        return {"counts":counts,"availability_counts":availability_counts,"total":total,"rows":rows[start:start+page_size],"page":page,"page_size":page_size,"pages":pages,"generated_at":now_utc()}
 
     def data_freshness(self, channel_id: str) -> dict[str, Any]:
         with connect(self.db_path) as conn:

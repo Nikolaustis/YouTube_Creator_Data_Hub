@@ -1,0 +1,7 @@
+(()=>{
+'use strict';
+async function post(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});const x=await r.json().catch(()=>({}));if(!r.ok||x.ok===false)throw new Error(x.error||`HTTP ${r.status}`);return x}
+async function attach(o){const sel=document.getElementById(o.selectId),save=document.getElementById(o.saveId),del=document.getElementById(o.deleteId),status=document.getElementById(o.statusId);if(!sel||!save)return;let views=[];async function load(){try{const x=await post('/api/saved-views/list',{page_key:o.pageKey});views=x.views||[];sel.innerHTML='<option value="">已保存视图…</option>'+views.map(v=>`<option value="${v.id}">${String(v.name).replace(/</g,'&lt;')}</option>`).join('');if(status)status.textContent=''}catch(e){if(status)status.textContent='保存视图需要交互 Dashboard'}}
+sel.onchange=()=>{const v=views.find(x=>String(x.id)===sel.value);if(v&&o.applyConfig)o.applyConfig(v.config||{})};save.onclick=async()=>{const name=prompt('视图名称');if(!name)return;try{await post('/api/saved-views/save',{page_key:o.pageKey,name,config:o.getConfig?o.getConfig():{}});if(status)status.textContent=`已保存：${name}`;await load()}catch(e){if(status)status.textContent=e.message}};if(del)del.onclick=async()=>{if(!sel.value)return;const v=views.find(x=>String(x.id)===sel.value);if(!confirm(`删除视图“${v?.name||''}”？`))return;try{await post('/api/saved-views/delete',{id:Number(sel.value)});await load()}catch(e){if(status)status.textContent=e.message}};await load()}
+window.CDHSavedViews={attach};
+})();

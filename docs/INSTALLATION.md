@@ -115,3 +115,14 @@ The task wakes every six hours. The Skill then refreshes only monitored creators
 After first installation, use **数据更新** in the interactive Dashboard for monitoring health, database backup/restore and Snapshot maintenance. Secondary Metrics / Rules and Query Expansion profiles are persisted in SQLite in interactive mode so a database backup also carries these business configurations.
 
 For operational commands and retention/retry details, see `docs/OPERATIONS.md`.
+
+
+## Optional AI setup
+
+AI is disabled by default and is not required for normal operation. After core setup is working, optional AI can be enabled with:
+
+```powershell
+.\setup-ai.cmd
+```
+
+See `docs/AI.md`.

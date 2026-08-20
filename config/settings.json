@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2.1.0",
+  "version": "3.9.0",
   "api": {
     "base_url": "https://www.googleapis.com/youtube/v3",
     "api_key_env": "YOUTUBE_API_KEY",
@@ -45,5 +45,18 @@
     "recent_discovery_limit": 1000,
     "pending_label_limit": 300,
     "classification_preview_limit": 300
+  },
+  "ai": {
+    "enabled": false,
+    "provider": "openai_responses",
+    "model": "",
+    "api_key_env": "CREATOR_HUB_AI_API_KEY",
+    "base_url": "https://api.openai.com/v1",
+    "timeout_seconds": 60,
+    "daily_request_soft_limit": 100,
+    "max_creators_per_task": 50,
+    "send_contact_data": false,
+    "store_remote": false,
+    "protocol": "openai_responses"
   }
 }

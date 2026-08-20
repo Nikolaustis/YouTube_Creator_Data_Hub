@@ -15,7 +15,7 @@ from creator_hub import __version__
 from creator_hub.dashboard import build_dashboard
 from creator_hub.db import init_db
 from creator_hub.exporter import export_all
-from creator_hub.importers import import_v2
+from creator_hub.importers import import_v2, import_business_metrics
 from creator_hub.metric_config import import_metric_config, export_metric_config, validate_metric_config
 from creator_hub.server import serve_dashboard
 from creator_hub.service import CreatorHub
@@ -86,9 +86,21 @@ def main():
     p=sub.add_parser("workflow",help="set discovery workflow status for a creator"); common(p); p.add_argument("channel_id"); p.add_argument("status",choices=["unreviewed","interested","to_contact","added","defer","excluded"]); p.add_argument("--note",default="")
     p=sub.add_parser("maintenance",help="database maintenance operations"); common(p); p.add_argument("kind",choices=["snapshots"]); p.add_argument("--dry-run",action="store_true"); p.add_argument("--auto",action="store_true")
 
+    p=sub.add_parser("ai-status",help="show optional AI copilot status; no model call"); common(p)
+    p=sub.add_parser("ai-config",help="configure optional AI layer"); common(p); g=p.add_mutually_exclusive_group(); g.add_argument("--enable",action="store_true"); g.add_argument("--disable",action="store_true"); p.add_argument("--protocol",choices=["openai_responses","openai_chat","anthropic_messages","gemini_generate_content","mock","disabled"]); p.add_argument("--provider",help="legacy alias: openai/mock/disabled"); p.add_argument("--base-url"); p.add_argument("--model"); p.add_argument("--api-key-env"); p.add_argument("--daily-limit",type=int)
+    p=sub.add_parser("ai-models",help="list models from the currently configured AI API"); common(p)
+    p=sub.add_parser("ai-test",help="test the currently configured AI API with one small request"); common(p)
+    p=sub.add_parser("ai-brief",help="generate an evidence-grounded Creator Brief"); common(p); p.add_argument("ref"); p.add_argument("--force",action="store_true")
+    p=sub.add_parser("ai-compare",help="compare 2-5 local creators"); common(p); p.add_argument("refs",nargs="+"); p.add_argument("--force",action="store_true")
+    p=sub.add_parser("ai-query-plan",help="AI plans discovery queries without executing them (diagnostic/backward-compatible)"); common(p); p.add_argument("query"); p.add_argument("--language",default="en"); p.add_argument("--objective",default="creator discovery"); p.add_argument("--force",action="store_true")
+    p=sub.add_parser("ai-query-search",help="AI plans queries and executes them through the existing YouTube API discovery tool"); common(p); p.add_argument("query"); p.add_argument("--language",default="en"); p.add_argument("--objective",default="creator discovery"); p.add_argument("--max-queries",type=int,default=12); p.add_argument("--max-results",type=int,default=25); p.add_argument("--lookback-days",type=int); p.add_argument("--target-country"); p.add_argument("--target-group"); p.add_argument("--force",action="store_true")
+    p=sub.add_parser("ai-ask",help="natural-language read-only query over local Creator facts"); common(p); p.add_argument("question"); p.add_argument("--force",action="store_true")
+    p=sub.add_parser("ai-weekly",help="generate a seven-day Creator Intelligence brief"); common(p); p.add_argument("--force",action="store_true")
+
     p=sub.add_parser("dashboard",help="build static offline Dashboard"); common(p); p.add_argument("--output",default=str(DEFAULT_OUTPUT))
     p=sub.add_parser("export",help="export objective data + label layers"); common(p); p.add_argument("--format",choices=["csv","json","xlsx"],default="xlsx"); p.add_argument("--output",default=str(ROOT/"exports"))
     p=sub.add_parser("import-v2",help="offline import from youtube-kol-gmv-intelligence V2 folder"); common(p); p.add_argument("path"); p.add_argument("--no-monitor",action="store_true")
+    p=sub.add_parser("import-business",help="import creator GMV/new-user/business metrics from CSV/XLSX or a folder"); common(p); p.add_argument("path"); p.add_argument("--source-type",default="manual_import")
     p=sub.add_parser("metric-config-import",help="install an exported Secondary Metrics JSON as the Dashboard default"); common(p); p.add_argument("path")
     p=sub.add_parser("metric-config-export",help="export the installed Secondary Metrics JSON"); common(p); p.add_argument("path")
 
@@ -130,7 +142,8 @@ def main():
                     h=make_hub(a); h.api.call("videos",part="id",id="dQw4w9WgXcQ",maxResults=1); online=True
                 except Exception as e:
                     online=False; online_error=f"{type(e).__name__}: {e}"
-        dump({"python":sys.version.split()[0],"python_executable":sys.executable,"python_ok":py_ok,"python_required":">=3.10","pip_present":pip_ok,"openpyxl_present":ox_ok,"db":str(dbp.resolve()),"db_exists":dbp.exists(),"schema_version":schema,"data_dir_writable":data_write,"output_dir_writable":output_write,"api_key_env":key_env,"api_key_present":key_present,"api_key_online_valid":online,"api_key_online_error":online_error,"interactive_url":"http://127.0.0.1:8765/","interactive_port":8765,"interactive_port_available":port_available,"interactive_port_error":port_error,"npm_required":False}); return
+        h=make_hub(a); ai=h.ai_status()
+        dump({"python":sys.version.split()[0],"python_executable":sys.executable,"python_ok":py_ok,"python_required":">=3.10","pip_present":pip_ok,"openpyxl_present":ox_ok,"db":str(dbp.resolve()),"db_exists":dbp.exists(),"schema_version":schema,"data_dir_writable":data_write,"output_dir_writable":output_write,"api_key_env":key_env,"api_key_present":key_present,"api_key_online_valid":online,"api_key_online_error":online_error,"interactive_url":"http://127.0.0.1:8765/","interactive_port":8765,"interactive_port_available":port_available,"interactive_port_error":port_error,"npm_required":False,"ai_optional":True,"ai":ai}); return
     hub=make_hub(a)
     if a.cmd=="discover":
         qs=[f"{a.query} {t}" for t in (a.expand_term or []) if str(t).strip()]
@@ -169,9 +182,30 @@ def main():
     elif a.cmd=="workflow": dump(hub.set_creator_workflow(a.channel_id,a.status,note=a.note,actor="cli"))
     elif a.cmd=="maintenance":
         if a.kind=="snapshots": dump(hub.compact_snapshots(dry_run=a.dry_run,auto=a.auto))
+    elif a.cmd=="ai-status": dump(hub.ai_status())
+    elif a.cmd=="ai-config":
+        patch={}
+        if a.enable: patch["enabled"]=True
+        if a.disable: patch["enabled"]=False
+        if a.protocol: patch["protocol"]=a.protocol
+        if a.provider: patch["provider"]=a.provider
+        if a.base_url: patch["base_url"]=a.base_url
+        if a.model: patch["model"]=a.model
+        if a.api_key_env: patch["api_key_env"]=a.api_key_env
+        if a.daily_limit: patch["daily_request_soft_limit"]=a.daily_limit
+        dump(hub.configure_ai(patch))
+    elif a.cmd=="ai-models": dump(hub.ai_models())
+    elif a.cmd=="ai-test": dump(hub.ai_test())
+    elif a.cmd=="ai-brief": dump(hub.ai_creator_brief(a.ref,force=a.force))
+    elif a.cmd=="ai-compare": dump(hub.ai_compare_creators(a.refs,force=a.force))
+    elif a.cmd=="ai-query-plan": dump(hub.ai_query_planner(a.query,language=a.language,objective=a.objective,force=a.force))
+    elif a.cmd=="ai-query-search": dump(hub.ai_query_search(a.query,language=a.language,objective=a.objective,max_queries=a.max_queries,max_results=a.max_results,lookback_days=a.lookback_days,target_country=a.target_country,target_group=a.target_group,force=a.force))
+    elif a.cmd=="ai-ask": dump(hub.ai_ask(a.question,force=a.force))
+    elif a.cmd=="ai-weekly": dump(hub.ai_weekly_brief(force=a.force))
     elif a.cmd=="dashboard": dump(build_dashboard(a.db,a.output,hub.settings))
     elif a.cmd=="export": dump(export_all(a.db,a.output,a.format))
     elif a.cmd=="import-v2": dump(import_v2(hub,a.path,monitoring=not a.no_monitor))
+    elif a.cmd=="import-business": dump(import_business_metrics(hub,a.path,source_type=a.source_type))
     elif a.cmd=="metric-config-import":
         obj=validate_metric_config(json.loads(Path(a.path).read_text(encoding="utf-8")))
         file_result=import_metric_config(a.path)

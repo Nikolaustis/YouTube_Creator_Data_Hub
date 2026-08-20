@@ -29,6 +29,8 @@ CREATOR_FACT_FIELDS={
     "ldcloud_video_count":"LDCloud视频数量",
     "redfinger_video_count":"RedFinger视频数量",
     "vsphone_video_count":"VSPhone视频数量",
+    "gmv_total":"GMV（商业数据）",
+    "new_users_total":"拉新（商业数据）",
 }
 
 # Creator-grain boolean identity labels. They are predicates, not numeric metrics.
@@ -149,25 +151,27 @@ def _count(cube, scope, value):
     return int((((cube.get(scope) or {}).get(value) or {}).get("all") or {}).get("count") or 0)
 
 
-def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:dict[str,Any], static_js:Path)->dict[str,int]:
-    assets=out/"assets"
-    assets.mkdir(parents=True,exist_ok=True)
-    now=parse_iso(now_utc())
-    cubes={}
-    brands=set()
+def build_creator_facts(creators:list[dict[str,Any]])->dict[str,Any]:
+    """Build the creator-grain facts payload used by interactive Dashboard pages.
+
+    This path is intentionally lightweight: counts already aggregated by _creator_rows()
+    are reused, so refreshing Creator facts does not rebuild HTML or scan every video cube.
+    """
     facts=[]
     for c in creators:
-        cube,found=_creator_cube(conn,c["channel_id"],now)
-        cubes[c["channel_id"]]=cube
-        brands.update(found)
-        ug=_count(cube,"role","ugphone")
-        comp=_count(cube,"role","competitor")
-        daily=_count(cube,"role","daily")
-        brand_counts={b:_count(cube,"brand",b) for b in CORE_BRANDS}
+        ug=int(c.get("identified_ugphone") or c.get("ugphone_video_count") or 0)
+        comp=int(c.get("identified_competitor") or c.get("competitor_video_count") or 0)
+        daily=int(c.get("identified_daily") or c.get("daily_video_count") or 0)
+        brand_counts={
+            "ldcloud":int(c.get("ldcloud_videos") or c.get("ldcloud_video_count") or 0),
+            "redfinger":int(c.get("redfinger_videos") or c.get("redfinger_video_count") or 0),
+            "vsphone":int(c.get("vsphone_videos") or c.get("vsphone_video_count") or 0),
+        }
         f={
             "channel_id":c["channel_id"],
             "channel_title":c.get("channel_title"),
             "handle":c.get("handle"),
+            "channel_url":c.get("channel_url"),
             "country_api":c.get("country_api"),
             "country_resolved":c.get("country_resolved"),
             "country_source":c.get("country_source"),
@@ -197,21 +201,34 @@ def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:
             "ldcloud_video_count":brand_counts["ldcloud"],
             "redfinger_video_count":brand_counts["redfinger"],
             "vsphone_video_count":brand_counts["vsphone"],
+            "gmv_total":float(c.get("gmv_total") or 0),
+            "new_users_total":float(c.get("new_users_total") or 0),
+            "business_metric_count":int(c.get("business_metric_count") or 0),
+            "business_metric_updated_at":c.get("business_metric_updated_at"),
+            "gmv_currency":c.get("gmv_currency") or "",
             "partnered_ugphone":1 if ug>0 else 0,
             "unpartnered_ugphone":1 if ug==0 else 0,
-            "competitor_creator":1 if comp>0 or brand_counts["ldcloud"]+brand_counts["redfinger"]+brand_counts["vsphone"]>0 else 0,
+            "competitor_creator":1 if comp>0 or sum(brand_counts.values())>0 else 0,
             "ldcloud_creator":1 if brand_counts["ldcloud"]>0 else 0,
             "redfinger_creator":1 if brand_counts["redfinger"]>0 else 0,
             "vsphone_creator":1 if brand_counts["vsphone"]>0 else 0,
-            "ugphone_and_competitor":1 if ug>0 and (comp>0 or brand_counts["ldcloud"]+brand_counts["redfinger"]+brand_counts["vsphone"]>0) else 0,
+            "ugphone_and_competitor":1 if ug>0 and (comp>0 or sum(brand_counts.values())>0) else 0,
             "suspected_inactive_partner":1 if c.get("suspected_inactive_partner") else 0,
         }
         facts.append(f)
-    (assets/"creator_facts.js").write_text(
-        "window.CDH_CREATOR_FACTS="+json.dumps({"generated_at":now_utc(),"creators":facts},ensure_ascii=False,separators=(",",":"))+";\n",
-        encoding="utf-8",
-    )
-    base={
+    return {"generated_at":now_utc(),"creators":facts}
+
+
+def build_metric_base(conn, creators:list[dict[str,Any]])->dict[str,Any]:
+    """Build the current video-grain aggregate cubes without writing Dashboard files."""
+    now=parse_iso(now_utc())
+    cubes={}
+    brands=set()
+    for c in creators:
+        cube,found=_creator_cube(conn,c["channel_id"],now)
+        cubes[c["channel_id"]]=cube
+        brands.update(found)
+    return {
         "schema_version":1,
         "generated_at":now_utc(),
         "windows":["all","7","30","60","90","180","365"],
@@ -228,6 +245,17 @@ def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:
         "video_objectives":VIDEO_FACT_FIELDS,
         "video_labels":VIDEO_FILTERS,
     }
+
+
+def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:dict[str,Any], static_js:Path)->dict[str,int]:
+    assets=out/"assets"
+    assets.mkdir(parents=True,exist_ok=True)
+    facts_payload=build_creator_facts(creators)
+    base=build_metric_base(conn,creators)
+    (assets/"creator_facts.js").write_text(
+        "window.CDH_CREATOR_FACTS="+json.dumps(facts_payload,ensure_ascii=False,separators=(",",":"))+";\n",
+        encoding="utf-8",
+    )
     (assets/"metric_base.js").write_text(
         "window.CDH_METRIC_BASE="+json.dumps(base,ensure_ascii=False,separators=(",",":"))+";\n",
         encoding="utf-8",
@@ -242,4 +270,4 @@ def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:
     overview_js=static_js.parent/"overview_filters.js"
     if overview_js.exists():
         (assets/"overview_filters.js").write_text(overview_js.read_text(encoding="utf-8"),encoding="utf-8")
-    return {"creators":len(facts),"cubes":len(cubes),"video_rows_exported":0,"saved_config":int(bool(saved))}
+    return {"creators":len(facts_payload["creators"]),"cubes":len(base["cubes"]),"video_rows_exported":0,"saved_config":int(bool(saved))}

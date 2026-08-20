@@ -66,15 +66,18 @@ echo Static mode: open-static-dashboard.cmd
 echo Automatic monitoring is optional and can be installed from the menu below.
 echo.
 
+
 :menu
 echo Next step:
 echo   [1] Start interactive Dashboard
 echo   [2] Open static Dashboard
 echo   [3] Install / refresh automatic monitoring task
 echo   [4] Validate YouTube API Key online
-echo   [5] Exit setup
-choice /C 12345 /N /M "Choose 1-5: "
-if errorlevel 5 goto :done
+echo   [5] Configure optional AI Copilot
+echo   [6] Exit setup
+choice /C 123456 /N /M "Choose 1-6: "
+if errorlevel 6 goto :done
+if errorlevel 5 goto :ai
 if errorlevel 4 goto :online
 if errorlevel 3 goto :monitor
 if errorlevel 2 goto :static
@@ -91,6 +94,11 @@ goto :menu
 
 :monitor
 call "%CD%\scripts\install-sync-task.cmd" --no-pause
+echo.
+goto :menu
+
+:ai
+call "%CD%\setup-ai.cmd"
 echo.
 goto :menu
 

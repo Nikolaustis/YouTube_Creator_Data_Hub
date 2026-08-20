@@ -2,20 +2,25 @@ from __future__ import annotations
 
 import json
 import threading
+import base64
+import tempfile
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .dashboard import build_dashboard
+from .dashboard import build_dashboard, creator_facts_payload, metric_base_payload, dashboard_stats_payload
 from .service import CreatorHub
 from .exporter import xlsx_bytes, safe_export_filename
+from .util import safe_filename
+from .jobs import JobStore
 
 
 class DashboardHandler(SimpleHTTPRequestHandler):
     hub: CreatorHub
     output_dir: Path
+    jobs = JobStore()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(self.output_dir), **kwargs)
@@ -51,17 +56,227 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         except Exception:
             return {}
 
+    def _job_runner(self, task: str, b: dict[str, Any]):
+        hub=self.hub
+        if task=="review_reclassify_all":
+            return lambda progress: hub.reclassify_videos(only_missing=False, progress=progress)
+        if task=="review_reclassify_pending":
+            return lambda progress: hub.reclassify_review_queue(progress=progress)
+        if task=="monitoring_sync":
+            return lambda progress: hub.sync_selected(list(b.get("channel_ids") or []), mode=str(b.get("mode") or "incremental"), metric_days=(int(b.get("metric_days")) if b.get("metric_days") else None), all_videos=bool(b.get("all_videos")), progress=progress)
+        if task=="monitoring_recheck":
+            return lambda progress: hub.recheck_channel_availability(list(b.get("channel_ids") or []), restore_monitoring=bool(b.get("restore_monitoring")), progress=progress)
+        if task=="capture_batch":
+            return lambda progress: hub.batch_capture_creators(list(b.get("channel_ids") or []), window=str(b.get("window") or "30"), from_date=str(b.get("from_date") or ""), to_date=str(b.get("to_date") or ""), priority=str(b.get("priority") or "normal"), actor=str(b.get("actor") or "dashboard-capture-batch"), progress=progress)
+        if task=="discovery_search":
+            queries=b.get("queries") if isinstance(b.get("queries"),list) else []
+            return lambda progress: hub.discover_expanded(str(b.get("query") or "").strip(), queries=[str(x) for x in queries], max_results=int(b.get("max_results") or 50), region=(b.get("region") or None), language=(b.get("language") or None), search_source=str(b.get("search_source") or "web"), target_country=(b.get("target_country") or None), target_group=(b.get("target_group") or None), lookback_days=int(b["lookback_days"]) if b.get("lookback_days") else None, from_date=(b.get("from_date") or None), to_date=(b.get("to_date") or None), max_queries=int(b.get("max_queries") or 80), query_language=(b.get("query_language") or None), progress=progress)
+        if task=="ai_query_search":
+            return lambda progress: hub.ai_query_search(str(b.get("query") or ""), language=str(b.get("language") or "en"), objective=str(b.get("objective") or "creator discovery"), max_queries=int(b.get("max_queries") or 12), max_results=int(b.get("max_results") or 25), lookback_days=(int(b.get("lookback_days")) if b.get("lookback_days") else None), target_country=(str(b.get("target_country") or "") or None), target_group=(str(b.get("target_group") or "") or None), force=bool(b.get("force")), progress=progress)
+        if task=="ai_ask":
+            def run(progress):
+                progress(stage="Ask Hub",message="正在解析问题并查询本地 Creator 数据",percent=12)
+                out=hub.ai_ask(str(b.get("question") or ""),force=bool(b.get("force")))
+                progress(stage="Ask Hub",message="结果已生成并留档",percent=100)
+                return out
+            return run
+        if task=="ai_creator_brief":
+            def run(progress):
+                progress(stage="Creator Brief",message="正在读取本地证据",percent=15)
+                out=hub.ai_creator_brief(str(b.get("ref") or b.get("channel_id") or ""),force=bool(b.get("force")))
+                progress(stage="Creator Brief",message="Brief 已生成",percent=100)
+                return out
+            return run
+        if task=="ai_compare":
+            def run(progress):
+                progress(stage="Creator 对比",message="正在读取本地证据并生成比较",percent=15)
+                out=hub.ai_compare_creators([str(x) for x in list(b.get("refs") or [])],force=bool(b.get("force")))
+                progress(stage="Creator 对比",message="对比已生成",percent=100)
+                return out
+            return run
+        if task=="ai_weekly":
+            def run(progress):
+                progress(stage="七日 Intelligence Brief",message="正在汇总最近七日数据并生成简报",percent=12)
+                out=hub.ai_weekly_brief(force=bool(b.get("force")))
+                progress(stage="七日 Intelligence Brief",message="简报已生成",percent=100)
+                return out
+            return run
+        if task=="ai_result_batch":
+            def run(progress):
+                progress(stage="AI Result Set 批量操作",message="正在解析当前筛选与选择范围",percent=5)
+                ids=hub.ai_result_channel_ids(int(b.get("result_set_id") or 0),search=str(b.get("search") or ""),conditions=list(b.get("conditions") or []))
+                excluded={str(x) for x in list(b.get("excluded") or [])}; ids=[x for x in ids if x not in excluded]
+                if str(b.get("selection_mode") or "")!="all_matching":
+                    wanted={str(x) for x in list(b.get("channel_ids") or [])}; ids=[x for x in ids if x in wanted]
+                return hub.batch_creators(ids,str(b.get("action") or ""),value=str(b.get("value") or ""),actor="ai-result-batch",progress=progress)
+            return run
+        if task=="creator_batch":
+            def run(progress):
+                return hub.batch_creators(list(b.get("channel_ids") or []),str(b.get("action") or ""),value=str(b.get("value") or ""),actor=str(b.get("actor") or "dashboard-batch"),progress=progress)
+            return run
+        if task=="review_batch":
+            def run(progress):
+                progress(stage="批量复核",message="正在写入人工复核结果",percent=10)
+                selection=dict(b.get("selection") or {})
+                if selection.get("mode")=="all_matching":
+                    out=hub.batch_review_matching(selection,str(b.get("action") or ""),role=str(b.get("role") or ""),brands=list(b.get("brands") or []),actor=str(b.get("actor") or "dashboard-batch"))
+                else:
+                    out=hub.batch_review(list(b.get("video_ids") or []),str(b.get("action") or ""),role=str(b.get("role") or ""),brands=list(b.get("brands") or []),actor=str(b.get("actor") or "dashboard-batch"))
+                progress(stage="批量复核",message="复核写入完成",percent=100)
+                return out
+            return run
+        if task=="maintenance_health":
+            def run(progress):
+                progress(stage="数据库健康",message="正在运行 SQLite 健康检查",percent=15)
+                out=hub.database_health(full=bool(b.get("full")),run_check=bool(b.get("run_check",False)))
+                progress(stage="数据库健康",message="数据库健康检查完成",percent=100)
+                return out
+            return run
+        if task=="maintenance_backup":
+            def run(progress):
+                progress(stage="数据库备份",message="正在创建 SQLite 一致性备份",percent=15)
+                out=hub.backup_database(note=str(b.get("note") or "dashboard"))
+                progress(stage="数据库备份",message="一致性备份创建完成",percent=100)
+                return out
+            return run
+        if task=="maintenance_restore":
+            def run(progress):
+                progress(stage="恢复数据库",message="正在校验备份并创建恢复前保护备份",percent=10)
+                out=hub.restore_database(str(b.get("name") or b.get("path") or ""),create_pre_backup=True)
+                progress(stage="恢复数据库",message="数据库已恢复，正在重建 Dashboard",percent=75)
+                build_dashboard(hub.db_path,self.output_dir,hub.settings)
+                progress(stage="恢复数据库",message="恢复与 Dashboard 重建完成",percent=100)
+                return out
+            return run
+        if task=="maintenance_snapshots":
+            def run(progress):
+                dry=bool(b.get("dry_run"))
+                progress(stage="Snapshot 生命周期",message="正在估算可压缩 Snapshot" if dry else "正在压缩冗余 Snapshot",percent=12)
+                out=hub.compact_snapshots(dry_run=dry,auto=False)
+                progress(stage="Snapshot 生命周期",message="估算完成" if dry else "Snapshot 压缩完成",percent=100)
+                return out
+            return run
+        if task=="dashboard_rebuild":
+            def run(progress):
+                progress(stage="重建 Dashboard",message="正在从 SQLite 生成 Dashboard",percent=10)
+                out=build_dashboard(hub.db_path,self.output_dir,hub.settings)
+                progress(stage="重建 Dashboard",message="Dashboard 已重建",percent=100)
+                return out
+            return run
+        if task=="business_import":
+            def run(progress):
+                filename=Path(str(b.get("filename") or "business_metrics.xlsx")).name
+                raw=base64.b64decode(str(b.get("content_base64") or ""),validate=True)
+                if not raw: raise ValueError("empty import file")
+                if len(raw)>40*1024*1024: raise ValueError("business import file exceeds 40MB")
+                suffix=Path(filename).suffix.lower()
+                if suffix not in {".xlsx",".xlsm",".csv"}: raise ValueError("only XLSX/XLSM/CSV business imports are supported")
+                progress(stage="商业数据导入",message=f"正在读取 {filename}",percent=5)
+                tmp=None
+                try:
+                    with tempfile.NamedTemporaryFile(prefix="creator_hub_business_",suffix=suffix,delete=False) as f:
+                        f.write(raw); tmp=Path(f.name)
+                    out=hub.import_business_metrics(tmp,source_type=str(b.get("source_type") or "dashboard_import"),progress=progress)
+                    out["uploaded_filename"]=filename
+                    progress(stage="商业数据导入",message=f"导入完成：{out.get('metric_values_upserted',0)} 个指标值",percent=100)
+                    return out
+                finally:
+                    if tmp:
+                        try: tmp.unlink(missing_ok=True)
+                        except Exception: pass
+            return run
+        raise ValueError(f"unsupported job task: {task}")
+
+    def _start_job(self, task: str, b: dict[str, Any]):
+        titles={
+            "review_reclassify_all":"离线重新识别全部系统分类", "review_reclassify_pending":"重新识别待复核视频",
+            "monitoring_sync":"同步 Creator 数据", "monitoring_recheck":"重新检测频道状态",
+            "capture_batch":"抓取并入库", "discovery_search":"博主发现搜索", "ai_query_search":"AI 搜索 Agent",
+            "ai_ask":"Ask Hub", "ai_creator_brief":"Creator Brief", "ai_compare":"Creator 对比", "ai_weekly":"七日 Intelligence Brief", "ai_result_batch":"AI Result Set 批量操作",
+            "creator_batch":"批量 Creator 操作", "review_batch":"批量人工复核",
+            "maintenance_health":"数据库健康检查", "maintenance_backup":"数据库一致性备份", "maintenance_restore":"恢复数据库", "maintenance_snapshots":"Snapshot 生命周期维护",
+            "dashboard_rebuild":"重建 Dashboard", "business_import":"导入商业表现数据",
+        }
+        return self.jobs.start(task=task,title=titles.get(task,task),runner=self._job_runner(task,b))
+
     def do_GET(self):
         if self.path == "/api/ping":
             import sys, os
             from .youtube_api import read_api_key
             key_env=self.hub.settings.get("api",{}).get("api_key_env","YOUTUBE_API_KEY")
-            return self._json({"ok":True,"mode":"interactive","version":getattr(__import__('creator_hub'), '__version__', ''),"python":sys.version.split()[0],"db":str(self.hub.db_path),"db_exists":Path(self.hub.db_path).exists(),"api_key_present":bool(read_api_key(key_env))})
+            
+            ai=self.hub.ai_status()
+            return self._json({"ok":True,"mode":"interactive","version":getattr(__import__('creator_hub'), '__version__', ''),"python":sys.version.split()[0],"db":str(self.hub.db_path),"db_exists":Path(self.hub.db_path).exists(),"api_key_present":bool(read_api_key(key_env)),"ai":{"enabled":ai.get("enabled"),"available":ai.get("available"),"provider":ai.get("provider"),"model":ai.get("model")}})
         return super().do_GET()
 
     def do_POST(self):
         path=urlparse(self.path).path; b=self._body()
         try:
+            if path=="/api/jobs/start":
+                task=str(b.get("task") or "").strip()
+                return self._json({"ok":True,"job":self._start_job(task,dict(b.get("payload") or {}))})
+            if path=="/api/jobs/status":
+                job=self.jobs.get(str(b.get("job_id") or ""))
+                return self._json({"ok":bool(job),"job":job},200 if job else 404)
+            if path=="/api/jobs/list":
+                return self._json({"ok":True,"jobs":self.jobs.list(int(b.get("limit") or 10))})
+            if path=="/api/ai/status":
+                return self._json({"ok":True,**self.hub.ai_status()})
+            if path=="/api/ai/config":
+                api_key=b.get("api_key")
+                clear_key=bool(b.get("clear_api_key"))
+                if (api_key or clear_key) and self.client_address[0] not in {"127.0.0.1","::1"}:
+                    raise ValueError("API Key can only be configured from the local machine")
+                return self._json({"ok":True,**self.hub.configure_ai(dict(b.get("config") or b),api_key=(str(api_key) if api_key is not None else None),clear_api_key=clear_key)})
+            if path=="/api/ai/models":
+                api_key=b.get("api_key")
+                if api_key and self.client_address[0] not in {"127.0.0.1","::1"}:
+                    raise ValueError("API Key can only be used from the local machine")
+                return self._json({"ok":True,**self.hub.ai_models(dict(b.get("config") or {}),api_key=(str(api_key) if api_key is not None else None))})
+            if path=="/api/ai/test":
+                return self._json({"ok":True,**self.hub.ai_test()})
+            if path=="/api/ai/creator-brief":
+                return self._json({"ok":True,**self.hub.ai_creator_brief(str(b.get("ref") or b.get("channel_id") or ""),force=bool(b.get("force")))})
+            if path=="/api/ai/compare":
+                return self._json({"ok":True,**self.hub.ai_compare_creators([str(x) for x in list(b.get("refs") or [])],force=bool(b.get("force")))})
+            if path=="/api/ai/query-plan":
+                return self._json({"ok":True,**self.hub.ai_query_planner(str(b.get("query") or ""),language=str(b.get("language") or "en"),objective=str(b.get("objective") or "creator discovery"),max_queries=int(b.get("max_queries") or 12),force=bool(b.get("force")))})
+            if path=="/api/ai/query-search":
+                result=self.hub.ai_query_search(
+                    str(b.get("query") or ""),language=str(b.get("language") or "en"),objective=str(b.get("objective") or "creator discovery"),
+                    max_queries=int(b.get("max_queries") or 12),max_results=int(b.get("max_results") or 25),
+                    lookback_days=(int(b.get("lookback_days")) if b.get("lookback_days") else None),
+                    target_country=(str(b.get("target_country") or "") or None),target_group=(str(b.get("target_group") or "") or None),force=bool(b.get("force")))
+                return self._json({"ok":True,**result})
+            if path=="/api/ai/ask":
+                return self._json({"ok":True,**self.hub.ai_ask(str(b.get("question") or ""),force=bool(b.get("force")))})
+            if path=="/api/ai/weekly-brief":
+                return self._json({"ok":True,**self.hub.ai_weekly_brief(force=bool(b.get("force")))})
+            if path=="/api/ai/history":
+                return self._json({"ok":True,**self.hub.ai_history(page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30))})
+            if path=="/api/ai/feedback":
+                return self._json({"ok":True,**self.hub.ai_feedback(int(b.get("finding_id") or 0),str(b.get("rating") or "neutral"),str(b.get("note") or ""))})
+            if path=="/api/creators/suggest":
+                return self._json({"ok":True,"rows":self.hub.creator_suggestions(str(b.get("query") or ""),limit=int(b.get("limit") or 10))})
+            if path=="/api/ai/result-set":
+                return self._json({"ok":True,**self.hub.ai_result_set(int(b.get("result_set_id") or 0),page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30),search=str(b.get("search") or ""),conditions=list(b.get("conditions") or []),sort=str(b.get("sort") or "rank"),direction=str(b.get("dir") or "asc"))})
+            if path=="/api/ai/result-history":
+                return self._json({"ok":True,**self.hub.ai_result_history(page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30),result_type=str(b.get("result_type") or ""),search=str(b.get("search") or ""))})
+            if path=="/api/ai/result-batch":
+                ids=self.hub.ai_result_channel_ids(int(b.get("result_set_id") or 0),search=str(b.get("search") or ""),conditions=list(b.get("conditions") or []))
+                excluded={str(x) for x in list(b.get("excluded") or [])}; ids=[x for x in ids if x not in excluded]
+                if str(b.get("selection_mode") or "")!="all_matching":
+                    wanted={str(x) for x in list(b.get("channel_ids") or [])}; ids=[x for x in ids if x in wanted]
+                return self._json({"ok":True,**self.hub.batch_creators(ids,str(b.get("action") or ""),value=str(b.get("value") or ""),actor="ai-result-batch")})
+            if path=="/api/dashboard/stats":
+                return self._json({"ok":True,**dashboard_stats_payload(self.hub.db_path)})
+            if path=="/api/creators/facts":
+                payload=creator_facts_payload(self.hub.db_path,self.hub.settings)
+                for c in payload.get("creators") or []:
+                    c["detail_available"]=(self.output_dir/"creators"/(safe_filename(str(c.get("channel_id") or ""))+".html")).exists()
+                return self._json({"ok":True,**payload})
+            if path=="/api/metrics/base":
+                return self._json({"ok":True,**metric_base_payload(self.hub.db_path,self.hub.settings)})
             if path=="/api/settings/get":
                 key=str(b.get("key") or "")
                 return self._json({"ok":True,"key":key,"value":self.hub.get_setting(key,None)})
@@ -69,10 +284,24 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self._json({"ok":True,**self.hub.set_setting(str(b.get("key") or ""),b.get("value"))})
             if path=="/api/settings/list":
                 return self._json({"ok":True,"settings":self.hub.list_settings()})
+            if path=="/api/saved-views/list":
+                return self._json({"ok":True,"views":self.hub.saved_views(str(b.get("page_key") or ""))})
+            if path=="/api/saved-views/save":
+                return self._json({"ok":True,"view":self.hub.save_view(str(b.get("page_key") or ""),str(b.get("name") or ""),dict(b.get("config") or {}))})
+            if path=="/api/saved-views/delete":
+                return self._json({"ok":True,**self.hub.delete_view(int(b.get("id") or 0))})
+            if path=="/api/business/creator":
+                return self._json({"ok":True,**self.hub.creator_business_metrics(str(b.get("channel_id") or ""))})
             if path=="/api/workflow/set":
                 return self._json({"ok":True,**self.hub.set_creator_workflow(str(b.get("channel_id") or ""),str(b.get("status") or "unreviewed"),note=str(b.get("note") or ""),actor=str(b.get("actor") or "dashboard"))})
             if path=="/api/creators/batch":
                 return self._json({"ok":True,**self.hub.batch_creators(list(b.get("channel_ids") or []),str(b.get("action") or ""),value=str(b.get("value") or ""),actor=str(b.get("actor") or "dashboard-batch"))})
+            if path=="/api/creators/capture-batch":
+                return self._json({"ok":True,**self.hub.batch_capture_creators(
+                    list(b.get("channel_ids") or []),window=str(b.get("window") or "30"),
+                    from_date=str(b.get("from_date") or ""),to_date=str(b.get("to_date") or ""),
+                    priority=str(b.get("priority") or "normal"),actor=str(b.get("actor") or "dashboard-capture-batch")
+                )})
             if path=="/api/review/batch":
                 selection=dict(b.get("selection") or {})
                 if selection.get("mode")=="all_matching":
@@ -80,6 +309,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self._json({"ok":True,**self.hub.batch_review(list(b.get("video_ids") or []),str(b.get("action") or ""),role=str(b.get("role") or ""),brands=list(b.get("brands") or []),actor=str(b.get("actor") or "dashboard-batch"))})
             if path=="/api/monitoring/health":
                 return self._json({"ok":True,**self.hub.monitoring_health(page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30))})
+            if path=="/api/monitoring/sync":
+                return self._json({"ok":True,**self.hub.sync_selected(list(b.get("channel_ids") or []),mode=str(b.get("mode") or "incremental"),metric_days=(int(b.get("metric_days")) if b.get("metric_days") else None),all_videos=bool(b.get("all_videos")))})
+            if path=="/api/monitoring/recheck":
+                return self._json({"ok":True,**self.hub.recheck_channel_availability(list(b.get("channel_ids") or []),restore_monitoring=bool(b.get("restore_monitoring")))})
+            if path=="/api/monitoring/override":
+                return self._json({"ok":True,**self.hub.set_creator_availability_override(list(b.get("channel_ids") or []),availability_status=str(b.get("availability_status") or ""),content_status=str(b.get("content_status") or ""),monitoring_policy=str(b.get("monitoring_policy") or ""),note=str(b.get("note") or ""),actor=str(b.get("actor") or "dashboard"))})
+            if path=="/api/monitoring/override-clear":
+                return self._json({"ok":True,**self.hub.clear_creator_availability_override(list(b.get("channel_ids") or []),actor=str(b.get("actor") or "dashboard"))})
             if path=="/api/maintenance/health":
                 return self._json({"ok":True,**self.hub.database_health(full=bool(b.get("full")),run_check=bool(b.get("run_check",False)))})
             if path=="/api/maintenance/backups":
@@ -136,7 +373,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     return self._xlsx(xlsx_bytes(sheet,columns,rows,metadata=[("Exported At",__import__('creator_hub.util',fromlist=['now_utc']).now_utc())]),filename)
                 if source=="classifications":
                     payload={"search":str(b.get("search") or ""),"conditions":list(b.get("conditions") or []),"sort":str(b.get("sort") or "published"),"direction":str(b.get("dir") or "desc")}
-                    cols=columns or [("video_id","Video ID"),("title","视频"),("channel_title","博主"),("published_at","发布时间"),("current_views","播放量"),("current_likes","点赞数"),("current_comments","评论数"),("duration_seconds","视频时长（秒）"),("final_role","最终分类"),("brands","最终品牌"),("confidence","系统置信度"),("review_status","复核状态")]
+                    cols=columns or [("video_id","Video ID"),("title","视频"),("channel_title","博主"),("published_at","发布时间"),("current_views","播放量"),("current_likes","点赞数"),("current_comments","评论数"),("duration_seconds","视频时长（秒）"),("effective_role","有效分类（人工优先）"),("classification_source","分类来源"),("suggested_role","系统原始分类"),("human_role","人工分类"),("human_system_mismatch","人工/系统不一致"),("brands","有效品牌（人工优先）"),("confidence","系统置信度"),("review_status","复核状态")]
                     def it():
                         pg=1
                         while True:
@@ -145,6 +382,41 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             if pg>=int(x.get("pages") or 1): break
                             pg+=1
                     return self._xlsx(xlsx_bytes(sheet or "Video Classifications",cols,it(),metadata=[("Search",payload["search"]),("Conditions",payload["conditions"])]),filename)
+                if source=="ai_result_set":
+                    rsid=int(b.get("result_set_id") or 0)
+                    payload={"search":str(b.get("search") or ""),"conditions":list(b.get("conditions") or []),"sort":str(b.get("sort") or "rank"),"direction":str(b.get("dir") or "asc")}
+                    cols=columns or [
+                        ("result_rank","结果顺序"),("channel_title","博主"),("channel_id","Channel ID"),("handle","Handle"),("country","国家/地区"),("subscribers","订阅数"),
+                        ("objective_fit_score","综合目标适配分"),("objective_fit_status","综合适配等级"),("content_fit_score","内容场景适配"),("continuity_fit_score","连续性"),("brand_safety_score","品牌安全"),("audience_size_fit_score","体量适配"),("query_coverage_score","Query覆盖分"),("profile_verification_status","Profile验证"),("continuity_gate_passed","长期制作门槛"),("brand_safety_status","品牌安全状态"),("brand_safety_flags","品牌安全标记"),("objective_fit_reason","适配证据"),("objective_terms_matched","命中要求词"),
+                        ("sampled_recent_videos","最近上传抽样数"),("objective_recent_videos","最近样本相关视频数"),("objective_recent_ratio","最近样本相关占比"),("objective_active_months","相关内容覆盖月份"),("objective_first_match","样本最早相关视频"),("objective_last_match","样本最近相关视频"),
+                        ("discovery_score","发现评分"),("best_video_title","最佳命中视频"),("best_video_views","最佳视频播放量"),("query_coverage","Query Coverage"),("matched_queries","命中Query"),
+                        ("local_data_status","本地数据状态"),("ugphone_videos","UgPhone视频数"),("competitor_videos","竞品视频数"),("workflow_status","工作流"),("monitoring_enabled","监控中"),("priority","优先级")
+                    ]
+                    first=self.hub.ai_result_set(rsid,page=1,page_size=1,**payload)
+                    info=first.get("result_set") or {}; req=info.get("request") or {}; plan=info.get("plan") or {}; md=info.get("metadata") or {}; fit=plan.get("fit_criteria") or {}
+                    def ai_it():
+                        pg=1
+                        while True:
+                            x=self.hub.ai_result_set(rsid,page=pg,page_size=5000,**payload)
+                            for r in x.get("rows") or []: yield r
+                            if pg>=int(x.get("pages") or 1): break
+                            pg+=1
+                    meta=[
+                        ("Result Set ID",rsid),("Type",info.get("result_type")),("Input / Base Topic",info.get("input_text")),("Created At",info.get("created_at")),
+                        ("Search Requirements",req.get("search_requirements")),("Language",req.get("language")),("Region Group",req.get("target_group")),("Country",req.get("target_country")),("Lookback Days",req.get("lookback_days")),("Max Queries",req.get("max_queries")),("Per Query Video Limit",req.get("max_results")),
+                        ("Planner Strategy",plan.get("strategy")),("Planner Notes",plan.get("notes")),("Fit Criteria",fit),("Search Concepts",fit.get("search_concepts")),("Preferred Terms",fit.get("preferred_terms")),("Continuity Terms",fit.get("continuity_terms")),("Long-term Min Videos",fit.get("long_term_min_videos")),("Long-term Min Months",fit.get("long_term_min_months")),("Exclude Official Channels",fit.get("exclude_official_channels")),("Exclude Script/Cheat Channels",fit.get("exclude_script_cheat_channels")),("Exclude Terms",fit.get("exclude_terms")),("Subscriber Min",fit.get("subscriber_min")),("Subscriber Max",fit.get("subscriber_max")),
+                        ("Planned Queries",plan.get("queries")),("Executed Queries",md.get("queries_executed")),("Raw Hits",md.get("hits")),("Raw Unique Creators",md.get("raw_unique_creators",md.get("unique_creators"))),("Pre-filter Candidates",md.get("pre_filter_candidates")),("Profile Budget",md.get("profile_budget")),("Retained Creators",md.get("retained_creators",info.get("total_items"))),("Filtered Out",md.get("filtered_out")),("Filtered Categories",md.get("filtered_categories")),("Pending Verification",md.get("pending_verification",md.get("unverified_candidates"))),("Recent-upload Profiled Creators",md.get("profiled_creators")),("Recent-upload Profile API Calls",md.get("profile_api_calls")),
+                        ("AI Provider",md.get("ai_provider")),("AI Model",md.get("ai_model")),("Prompt Version",md.get("prompt_version")),
+                        ("Current Export Search",payload["search"]),("Current Export Conditions",payload["conditions"]),("Current Export Sort",payload["sort"]+" "+payload["direction"]),("AI Run ID",info.get("ai_run_id")),("Discovery Run ID",info.get("discovery_run_id"))
+                    ]
+                    planned_q=list(plan.get("queries") or []); executed=list(md.get("queries_executed") or [])
+                    qrows=[]; seen=set()
+                    for q in planned_q+executed:
+                        q=str(q or "").strip()
+                        if not q or q.casefold() in seen: continue
+                        seen.add(q.casefold()); qrows.append({"query":q,"planned":q in planned_q,"executed":q in executed,"planned_order":(planned_q.index(q)+1 if q in planned_q else None),"executed_order":(executed.index(q)+1 if q in executed else None)})
+                    extra=[("Query Details",[("query","Query"),("planned","Planner计划"),("executed","实际执行"),("planned_order","计划顺序"),("executed_order","执行顺序")],qrows)]
+                    return self._xlsx(xlsx_bytes(sheet or "AI Results",cols,ai_it(),metadata=meta,extra_sheets=extra),filename)
                 if source in {"discovery_creators","discovery_videos"}:
                     fn=self.hub.discovery_creator_history if source=="discovery_creators" else self.hub.discovery_history
                     payload={"search":str(b.get("search") or ""),"conditions":list(b.get("conditions") or []),"sort":str(b.get("sort") or "score"),"direction":str(b.get("dir") or "desc")}
@@ -172,6 +444,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self._json({"ok":True,"result":self.hub.review_video(str(b.get("video_id") or ""),confirm_system=bool(b.get("confirm_system")),role=(str(b.get("role")) if b.get("role") else None),brands=list(b.get("brands") or []))})
             if path=="/api/review/reclassify":
                 return self._json({"ok":True,**self.hub.reclassify_review_queue()})
+            if path=="/api/review/reclassify-all":
+                return self._json({"ok":True,**self.hub.reclassify_videos(only_missing=False)})
             if path=="/api/rebuild-dashboard":
                 return self._json({"ok":True,**build_dashboard(self.hub.db_path,self.output_dir,self.hub.settings)})
             self._json({"ok":False,"error":"unknown endpoint"},404)
@@ -182,7 +456,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 def serve_dashboard(hub: CreatorHub, output_dir: str | Path, host: str="127.0.0.1", port: int=8765, open_browser: bool=True):
     out=Path(output_dir); build_dashboard(hub.db_path,out,hub.settings)
     class H(DashboardHandler): pass
-    H.hub=hub; H.output_dir=out
+    H.hub=hub; H.output_dir=out; H.jobs=JobStore(hub.db_path)
     server=ThreadingHTTPServer((host,port),H)
     url=f"http://{host}:{port}/index.html"
     if open_browser:

@@ -1,4 +1,4 @@
 interface:
   display_name: "YouTube Creator Data Hub"
-  short_description: "本地 Python YouTube KOL facts, snapshots, labels and static Dashboard with secondary-metric/rule workspace"
-  default_prompt: "Use the YouTube Creator Data Hub to execute my KOL discovery, Query Expansion, monitoring, refresh, labeling, export or Dashboard request. Keep objective facts separate from machine suggestions and human labels."
+  short_description: "Local Python + SQLite Creator Intelligence, monitoring, discovery and optional provider-neutral AI Copilot and search agent"
+  default_prompt: "Use the YouTube Creator Data Hub for Creator discovery, Query Expansion, monitoring, classification, secondary metrics, workflow, export or optional AI analysis. Keep objective facts, deterministic system outputs, AI findings and human labels separate. AI must remain optional."

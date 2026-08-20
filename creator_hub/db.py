@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 15
 LEGACY_DISCOVERY_INFERENCE_VERSION = 2
 DISCOVERY_SUMMARY_VERSION = 1
 
@@ -276,6 +276,111 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ai_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  source_fingerprint TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  response_id TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_runs_started ON ai_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_runs_task ON ai_runs(task, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_findings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  finding_type TEXT NOT NULL,
+  channel_id TEXT,
+  title TEXT,
+  summary TEXT,
+  confidence REAL,
+  result_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(run_id) REFERENCES ai_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ai_findings_channel ON ai_findings(channel_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_findings_run ON ai_findings(run_id);
+
+CREATE TABLE IF NOT EXISTS ai_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  finding_id INTEGER NOT NULL,
+  evidence_key TEXT NOT NULL,
+  evidence_value_json TEXT,
+  source_type TEXT NOT NULL DEFAULT 'local_db',
+  source_ref TEXT,
+  captured_at TEXT NOT NULL,
+  FOREIGN KEY(finding_id) REFERENCES ai_findings(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ai_evidence_finding ON ai_evidence(finding_id);
+
+CREATE TABLE IF NOT EXISTS ai_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  finding_id INTEGER NOT NULL,
+  rating TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(finding_id) REFERENCES ai_findings(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ai_feedback_finding ON ai_feedback(finding_id);
+
+CREATE TABLE IF NOT EXISTS ai_cache (
+  cache_key TEXT PRIMARY KEY,
+  task TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  source_fingerprint TEXT,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_cache_task ON ai_cache(task, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_result_sets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ai_run_id INTEGER,
+  result_type TEXT NOT NULL,
+  title TEXT,
+  input_text TEXT,
+  source_type TEXT NOT NULL DEFAULT 'local_db',
+  request_json TEXT NOT NULL DEFAULT '{}',
+  plan_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  discovery_run_id TEXT,
+  total_items INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(ai_run_id) REFERENCES ai_runs(id) ON DELETE SET NULL,
+  FOREIGN KEY(discovery_run_id) REFERENCES discovery_runs(run_id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_result_sets_created ON ai_result_sets(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_result_sets_type ON ai_result_sets(result_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_result_sets_ai_run ON ai_result_sets(ai_run_id);
+CREATE INDEX IF NOT EXISTS idx_ai_result_sets_discovery ON ai_result_sets(discovery_run_id);
+
+CREATE TABLE IF NOT EXISTS ai_result_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  result_set_id INTEGER NOT NULL,
+  item_index INTEGER NOT NULL,
+  item_type TEXT NOT NULL DEFAULT 'creator',
+  item_key TEXT,
+  channel_id TEXT,
+  snapshot_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(result_set_id, item_index),
+  FOREIGN KEY(result_set_id) REFERENCES ai_result_sets(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ai_result_items_set ON ai_result_items(result_set_id, item_index);
+CREATE INDEX IF NOT EXISTS idx_ai_result_items_channel ON ai_result_items(channel_id);
+
+
 CREATE TABLE IF NOT EXISTS creator_workflow (
   channel_id TEXT PRIMARY KEY,
   status TEXT NOT NULL DEFAULT 'unreviewed',
@@ -356,6 +461,83 @@ CREATE TABLE IF NOT EXISTS imports (
   snapshots INTEGER NOT NULL DEFAULT 0,
   message TEXT
 );
+
+CREATE TABLE IF NOT EXISTS creator_business_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id TEXT NOT NULL,
+  metric_key TEXT NOT NULL,
+  metric_value REAL NOT NULL,
+  currency TEXT,
+  period_start TEXT NOT NULL DEFAULT '',
+  period_end TEXT NOT NULL DEFAULT '',
+  campaign TEXT NOT NULL DEFAULT '',
+  region TEXT NOT NULL DEFAULT '',
+  source_type TEXT NOT NULL DEFAULT 'manual_import',
+  source_ref TEXT NOT NULL DEFAULT '',
+  import_batch TEXT,
+  captured_at TEXT NOT NULL,
+  note TEXT,
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(channel_id,metric_key,period_start,period_end,campaign,region,source_type,source_ref),
+  FOREIGN KEY(channel_id) REFERENCES creators(channel_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_business_metric_channel_key ON creator_business_metrics(channel_id,metric_key);
+CREATE INDEX IF NOT EXISTS idx_business_metric_period ON creator_business_metrics(metric_key,period_end,period_start);
+CREATE INDEX IF NOT EXISTS idx_business_metric_capture ON creator_business_metrics(captured_at DESC);
+
+CREATE TABLE IF NOT EXISTS saved_views (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  page_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(page_key,name)
+);
+CREATE INDEX IF NOT EXISTS idx_saved_views_page ON saved_views(page_key,updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS job_runs (
+  job_id TEXT PRIMARY KEY,
+  task TEXT NOT NULL,
+  title TEXT NOT NULL,
+  state TEXT NOT NULL,
+  stage TEXT,
+  message TEXT,
+  current_value REAL,
+  total_value REAL,
+  percent REAL,
+  started_at TEXT,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT,
+  elapsed_seconds REAL NOT NULL DEFAULT 0,
+  result_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_job_runs_updated ON job_runs(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_job_runs_state ON job_runs(state,updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS creator_availability_overrides (
+  channel_id TEXT PRIMARY KEY,
+  availability_status TEXT,
+  content_status TEXT,
+  monitoring_policy TEXT,
+  note TEXT,
+  actor TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(channel_id) REFERENCES creators(channel_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_creator_availability_override_status ON creator_availability_overrides(availability_status,updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS creator_availability_override_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id TEXT NOT NULL,
+  old_json TEXT NOT NULL DEFAULT '{}',
+  new_json TEXT NOT NULL DEFAULT '{}',
+  actor TEXT,
+  changed_at TEXT NOT NULL,
+  FOREIGN KEY(channel_id) REFERENCES creators(channel_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_creator_availability_override_audit_channel ON creator_availability_override_audit(channel_id,changed_at DESC);
 '''
 
 CREATOR_COLUMNS = {
@@ -382,11 +564,23 @@ CREATOR_COLUMNS = {
     "next_sync_at": "TEXT",
     "next_retry_at": "TEXT",
     "sync_suspended": "INTEGER NOT NULL DEFAULT 0",
+    "availability_status": "TEXT NOT NULL DEFAULT 'available'",
+    "availability_reason": "TEXT",
+    "availability_source": "TEXT",
+    "availability_checked_at": "TEXT",
+    "availability_failures": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
+AI_RUN_COLUMNS = {
+    "source_json": "TEXT NOT NULL DEFAULT '{}'",
+    "result_json": "TEXT NOT NULL DEFAULT '{}'",
+    "cache_hit": "INTEGER NOT NULL DEFAULT 0",
+}
+
 DISCOVERY_RUN_COLUMNS = {
     "base_query_source": "TEXT NOT NULL DEFAULT 'exact'",
+    "ai_run_id": "INTEGER",
 }
 
 DISCOVERY_COLUMNS = {
@@ -599,6 +793,7 @@ def init_db(db_path: str | Path) -> None:
         _ensure_columns(conn, "creators", CREATOR_COLUMNS)
         _ensure_columns(conn, "discovery_hits", DISCOVERY_COLUMNS)
         _ensure_columns(conn, "discovery_runs", DISCOVERY_RUN_COLUMNS)
+        _ensure_columns(conn, "ai_runs", AI_RUN_COLUMNS)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_discovery_run ON discovery_hits(run_id)")
         _rebuild_legacy_discovery(conn)
         _rebuild_discovery_summary(conn)

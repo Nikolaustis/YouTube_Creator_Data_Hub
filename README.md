@@ -1,5 +1,6 @@
-# YouTube 博主数据中心 v2.1.0
-> v2.1.0 表格交互一致性更新：监控健康默认 30 条/页；所有支持批量操作的表格增加跨全部页面的全选与清空选择。
+# YouTube 博主数据中心 v3.9.0
+> v3.9.0 聚焦“结论优先”的 Dashboard 信息架构：主表不再依赖横向滚动，过程/审计信息进入详情 Inspector；长文本合理换行，身份标签逐行居中，同类批量动作收拢为语义化下拉菜单。Schema 保持 15。
+> AI Search 的 v3.8.0 连续性、Profile Budget 与超时重试逻辑全部保留；本版主要解决表格可读性和操作区注意力成本。
 
 本项目是一个本地 Python + SQLite 的 YouTube Creator 数据中心。**不需要 Node/npm**。正常使用推荐交互 Dashboard；静态 Dashboard 用于只读快照。
 
@@ -54,6 +55,135 @@ python .\hub.py doctor --online
 
 Dashboard 顶部会明确显示“交互模式 / 静态只读”，交互模式还显示 Python、SQLite 和 API Key 状态。完整安装说明见 `docs/INSTALLATION.md`。
 
+
+
+
+### v3.9.0：结论优先表格与详情层
+
+- **默认主表不允许靠横向滚动才能阅读**：表格回到 `width:100% + table-layout:fixed`；博主名、视频标题等长文本按列宽自动换行，不允许跨单元格覆盖。
+- **主表只展示结论**：国家列只显示最终国家；来源、Search Run、关键词来源、首次/重复发现等过程性字段进入 Inspector/导出，不再常驻表面。
+- 博主库默认收敛为选择、博主、国家、订阅、频道播放、本地视频数、身份、UgPhone视频数、商业表现、状态。筛选/排序使用的非默认事实仍可按需加入解释列。
+- 身份标签采用纵向堆叠，每个标签独占一行并居中，避免与后续指标列重叠。
+- 视频分类表的默认业务列保持紧凑；长视频标题允许多行，单行复核控件收拢为“复核 ▾”。
+- 【博主发现】的批量动作统一分组为“处理状态 / 入库与抓取 / 监控 / 优先级 / 更多”；同类按钮不再平铺。
+- 【已保存的发现记录 · 博主】默认只显示 9 个结论列；原关键词、关键词来源、Discovery Run、累计发现次数、首次/最近发现、国家来源、命中 Query 等通过“详情”打开 Inspector。
+- 【已保存的发现记录 · 视频命中】同样移除实际 Query 等过程性列，保留用于判断的结果字段。
+- Schema 保持 **15**；无数据库迁移。
+
+### v3.8.0：SmartTable、可控 Job Center 与 Continuity Gate 修正
+
+- SmartTable 不再强行把宽表压进视口：表格使用 `width:max-content + min-width:100%`、字段最小宽度、横向滚动与顶部滚动控制；选择列和 Creator/Video 实体列可 Sticky，长证据/错误字段按需换行。重点覆盖博主库、已保存发现记录、视频分类、监控健康、AI Result Set 与二次指标等宽表。
+- Job Center 增加“最小化 / 关闭 / 单任务隐藏”：最小化后只保留小型任务入口；关闭只隐藏界面，不停止 SQLite `job_runs` 中的后台任务；完成或失败任务可单独 dismiss，历史记录仍保留。
+- AI Provider 对 read timeout、连接重置、429 与常见 5xx 增加最多两次自动重试，并在任务进度中显示“AI 请求重试”，减少一次性 Planner 超时导致整次 Agent 直接失败。
+- AI Search 改为“Discovery → 低成本预过滤 → Profile 候选 → 频道级主题上下文 → 场景连续性 Gate → 品牌安全/体量/综合评分”。先剔除明显超体量、官方来源、脚本外挂和明显主题噪声，再把 Profile 配额用于更有潜力的 Creator。
+- Continuity Gate 修复 V3.7.0 的过严条件：确认频道/近期样本属于基础主题后，AFK、Auto Farm、Overnight、Multi-account 等相关上传可直接计入连续性，不要求每一条标题都重复完整游戏名。
+- Profile Budget 提升并显式记录；因预算或请求异常尚未完成 Profile 的候选进入“待验证 / Pending Verification”，不再计入过滤失败，也不得冒充“高适配”。Result Set / XLSX 增加 Pre-filter Candidates、Profile Budget、Pending Verification 等解释字段。
+- Query Planner Prompt 升级为 **v6**；Schema 继续使用 **15**，本版本不新增数据库结构。
+
+### v3.7.0：持久任务中心、人工频道状态与 Creator Sourcing 质量门槛
+
+- 后台 Job 进度写入 `job_runs`：跨 Dashboard 页面、浏览器刷新仍可看到正在运行/最近任务；Dashboard 服务重启后无法续跑的线程明确标记“已中断”，不会假装继续执行。
+- 【监控健康】保留系统频道可用性检测，同时新增人工覆盖层，可人工确认社区准则终止、版权终止、频道删除/失效、无公开视频、历史视频已清空、长期停更，并设置正常/低频/仅检测恢复/暂停/停止监控策略；人工覆盖有独立审计记录。
+- AI Query Planner v5 直接受 `Max Queries` 预算约束，输出最终可执行 Query；本机只做去重/文本规范化，不再先生成几十条再进行第二轮 Query 重组。
+- “长期/持续制作”升级为硬门槛：默认要求最近最多50条上传中目标内容至少5条且覆盖至少3个月；未完成最近上传 Profile 的候选不进入正式 Result Set。
+- AI 目标适配拆分为内容场景适配、连续性、品牌安全、体量适配、Query Coverage 五个可解释维度，再生成 A/B/C/D 综合等级。
+- Creator sourcing 默认剔除云手机品牌官方/产品频道、游戏官方/开发者频道或明确官方预告视频，以及以 Script/Hack/Cheat/Exploit/Executor/Keyless/Dupe 等为主的脚本外挂频道。过滤原因、分类统计和品牌安全标记写入 Result Set / XLSX 元数据。
+- Schema 升至 **15**，新增 `job_runs`、`creator_availability_overrides`、`creator_availability_override_audit`。
+
+### v3.6.0：商业表现事实层与统一产品组件
+
+- 新增独立 `creator_business_metrics` 事实表，正式保存 GMV、拉新、新订单、Revenue、Commission、Cost 等 Creator 商业指标，并保留周期、币种、Campaign、Region、来源、导入批次与原始行追溯信息。
+- 【数据更新 → 商业表现数据】可直接导入 CSV / XLSX / XLSM；按 Channel ID、YouTube Channel URL、Handle、唯一精确频道名匹配现有 Creator，无法确定的行只报告不猜测。重复导入同一来源行采用 upsert。
+- `import-v2` 会扫描旧 `youtube-kol-gmv-intelligence V2` 根目录中的 CSV/XLSX 商业字段，将可匹配 GMV/拉新等数据迁入新事实层；也可用 `hub.py import-business PATH` 单独导入历史表格。
+- 博主库新增商业表现摘要与 GMV/拉新排序；GMV/拉新同时进入“博主客观数据”字段体系，可和播放量、品牌内容、身份标签等一起构建二次指标。
+- 新增 Saved Views：博主库、视频分类可保存当前筛选、排序和分页视图，减少重复配置。
+- 新增统一 Creator Inspector：主表只展示摘要，详细同步/数据新鲜度与商业表现按需在右侧抽屉查看；批量操作改为按“监控 / 优先级 / 标签”等任务分组的 Context Action Bar，功能保留但降低按钮堆积。
+- Creator/Video 在主要 Dashboard 表格中统一使用可直接打开 YouTube 的实体链接；主表文本默认紧凑、表头禁止逐字换行，视频分类只显示核心列，筛选/排序字段按需显列并继续蓝色高亮。
+- Schema 升至 **14**，新增 `creator_business_metrics` 与 `saved_views`。
+
+### v3.5.0：可见任务进度、筛选/排序可解释性与频道生命周期
+
+- 【视频分类】默认业务列为“有效分类（人工优先）”；“系统原始分类”默认隐藏，仅在筛选/排序该字段或检查人工/系统不一致时自动出现并以蓝色表头突出。
+
+- 长耗时操作统一进入后台 Job：固定进度卡持续显示任务阶段、当前/总量、百分比、耗时、完成或失败状态。
+- 所有支持筛选/排序的大型表格遵守“筛什么/排什么就显示什么”：对应字段必须可见，表头统一蓝色高亮；二次指标筛选的非默认指标会自动增加结果列。
+- 【视频分类】默认主分类改为“有效分类（人工优先）”，系统原始分类保留作审计；人工/系统不一致仍可集中筛查。
+- 【监控健康】把“频道状态”“同步健康”“监控状态”拆开；明确识别社区准则终止、版权终止、已删除/不存在、暂时不可用和原因未知不可用。
+- 仅在公开 YouTube 页面明确给出原因时标记“社区准则终止”或“版权终止”；终止/删除状态停止自动监控与普通重试但保留全部本地历史，并可手工重新检测。
+- SQLite Schema 升至 13。
+
+### v3.4.0：有效分类与目标适配 AI Agent
+
+- 视频分类的业务默认字段改为“有效分类（人工优先）”；系统原始分类仅用于审计，可筛选人工/系统不一致。
+- 已保存发现记录首屏只保留 30 条静态兜底，交互 Dashboard 从第一页 API 数据开始渲染。
+- 监控健康增加 YouTube 主页链接、状态解释以及单条/批量立即同步。
+- AI 搜索 Agent 将搜索要求转成结构化 Fit Criteria，执行 Query 后轻量抽样候选 Creator 最近最多 50 条上传，过滤明显无关/不满足硬约束的候选，并按目标适配分排序。
+- AI Result Set 和 XLSX 保留完整输入、Planner、实际 Query、过滤统计和模型元数据；未进入本地库的 Creator 显示“未采集”，而不是误显示 UgPhone/竞品视频数为 0。
+
+### v3.3.2：场景词与云手机实体证据分离
+
+- `cloud_entity_terms`：cloud phone / cloud emulator / 云手机等，可作为【其他云手机】实体证据。
+- `use_case_terms`：AFK / Auto Farm / 24/7 / multi-instance，只用于发现/适配语境，单独出现仍归【日常视频】。
+- 已知品牌官方域名若同时带产品、登录、下载或推广路径，可形成品牌级证据。
+- 【视频分类】→“离线重新识别全部系统分类”会用当前规则重算全部 `label_suggestions`，不消耗 YouTube API、不覆盖人工修正。
+
+## v3.3.1：Action Parity、批量抓取与实时数据刷新
+
+- 博主发现与已保存发现博主现在都可多选后执行“抓取并入库”，抓取范围统一支持近7/30/60/90/180/365天、指定日期范围和全历史。
+- “全历史”在单条与批量 UI 中明确标注当前安全上限：最多10,000条上传视频（由 `max_playlist_pages_full × playlist_page_size` 与 `max_videos_per_creator` 共同限制）。
+- 交互模式新增 Creator Facts、Dashboard Stats、Metric Base 动态接口；写库后总览、本地视频数、身份标签与二次指标直接刷新，不需要关闭页面、重启服务或执行 `upgrade.cmd`。
+- 监控健康补齐多选和批量恢复；批量开启监控/改优先级不会对已入库 Creator 重复请求 Channel API。
+- 静态 Dashboard 继续是生成时快照；Schema 保持 12。
+
+## v3.2.0：AI Result Set、留档工作流与 Creator Picker
+
+- Ask Hub 与 AI 搜索 Agent 每次执行都会自动生成独立 Result Set，保存当次结果快照，并关联 AI Run / Discovery Run。
+- AI Result Set 默认30条/页，支持搜索、字段筛选、排序、跨页选择、批量后续操作和按当前条件导出完整 XLSX。
+- 新增【AI 检索历史】，可重新打开过去的 Ask Hub / AI 搜索 Agent 结果，不受后续 Creator 数据更新影响。
+- Ask Hub 将“用户明确要求的 Top N”与 UI 分页彻底分离：没有明确数量要求时返回全部本地匹配结果，再按30条/页展示。
+- Creator Brief 改为文本搜索 → 候选下拉 → 单选锁定；Creator 对比使用相同 Creator Picker，并以2–5个标签式对象锁定。
+- “搜索目标”改名为“AI 搜索要求（可选）”，同时保留区域、国家、时间等结构化硬约束。
+- AI Run 现在持久化输入/结果快照；命中本地 AI Cache 时也会为本次用户操作生成新的调用记录。
+- SQLite Schema 升级至 12，新增 `ai_result_sets` / `ai_result_items`，并为 `discovery_runs` 增加 `ai_run_id` 关联。
+
+## v3.1.0：开放式 AI API 配置与 AI 搜索 Agent
+
+- 【AI 状态与配置】不再维护固定模型按钮：用户选择接口协议后，可直接填写任意 API Base URL、API Key 和模型 ID。
+- 支持 Responses API、OpenAI-compatible Chat Completions、Anthropic Messages、Gemini generateContent 与 Mock 五种协议适配器；“供应商/模型”不再硬编码成固定目录。
+- 【读取可用模型】会尝试调用当前 API 的模型列表；读取失败也不阻止用户手工输入 API 文档提供的模型 ID。
+- Dashboard 可以直接配置/清除 AI API Key；Key 只保存在本机用户级密钥槽 `CREATOR_HUB_AI_API_KEY`，不会进入 SQLite 或浏览器 LocalStorage。
+- `setup-ai.cmd` 改为通用 AI 向导，不再只询问 `OPENAI_API_KEY`。
+- 原【AI Query Planner】升级为【AI 搜索 Agent】：AI 生成 Query 后，立即通过现有 YouTube API Discovery 执行搜索、去重、评分并保存发现记录。
+- 保留 `ai-query-plan` 作为诊断/只规划 CLI，同时新增 `ai-query-search`、`ai-models` 与 `ai-test`。
+- 修复 v3.0.0 已持久化 `provider=mock/openai` 配置升级到新 `protocol` 字段时的兼容迁移。Schema 仍为 11。
+
+### 可选 AI 配置
+
+最方便的方法是启动交互 Dashboard，进入【AI 助手 → AI 状态与配置】，依次填写：接口协议、Base URL、API Key、模型 ID，然后点击【测试连接】。也可以运行：
+
+```powershell
+.\setup-ai.cmd
+```
+
+完整说明见 `docs/AI.md`。
+
+## v3.0.0：可插拔 AI Copilot（AI-OFF First）
+
+- AI 默认关闭，核心 `requirements.txt` 不增加 AI SDK；没有 `OPENAI_API_KEY` 时安装、同步、分类、发现、监控、二次指标、XLSX、备份与维护均正常工作。
+- 新增【AI 助手】：Ask Hub、Creator Brief、Creator 对比、AI Query Planner、七日 Creator Intelligence Brief、AI 调用记录。
+- Ask Hub 使用“AI 解析意图 → allowlist 查询计划 → 本地 SQLite 执行”的结构，AI 不直接执行任意 SQL。
+- Creator Brief 保存独立 AI Finding 与 Evidence，不覆盖确定性 Discovery Score、系统分类或人工标签。
+- AI API Key 只读取 Windows 用户环境变量 `OPENAI_API_KEY`；不写入 SQLite/浏览器。
+- OpenAI 模式默认关闭远端 Response 存储；同时提供 `mock` Provider 做完全离线测试。
+- 新增 `setup-ai.cmd`、`scripts/set-ai-key.cmd` 和 `docs/AI.md`。SQLite Schema 升级至 11。
+
+### 可选启用 AI
+
+```powershell
+.\setup-ai.cmd
+```
+
+如果不运行这一步，产品保持标准非 AI 模式。
 
 ## v2.1.0：统一分页与跨页批量选择
 
@@ -226,7 +356,7 @@ Codex / 交互 Dashboard
 
 ## 推荐启动方式
 
-覆盖旧版本后，先双击 `upgrade.cmd`。v2.1.0 会先使用 SQLite Backup API 对现有 `data/creator_hub.sqlite` 创建 `backups/pre_upgrade_*.sqlite` 一致性备份，再执行 Schema 迁移、自检、清理旧 Dashboard 并重新生成。
+覆盖旧版本后，先双击 `upgrade.cmd`。v3.9.0 会先使用 SQLite Backup API 对现有 `data/creator_hub.sqlite` 创建 `backups/pre_upgrade_*.sqlite` 一致性备份，再执行 Schema 迁移、自检、清理旧 Dashboard 并重新生成。
 
 覆盖安装后，直接双击 Skill 根目录的 `start-dashboard.cmd`。它会启动本地 Python 交互服务并自动打开浏览器，搜索、抓取视频和获取联系方式等按钮均可直接使用。
 

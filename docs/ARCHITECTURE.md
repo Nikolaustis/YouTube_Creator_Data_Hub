@@ -51,3 +51,25 @@ SQLite is also the persistent store for operational/business state that must sur
 - `backup_registry`: known consistent backups
 
 The live `creators` row carries category-specific freshness timestamps plus sync/retry state. Browser localStorage is not the source of truth for interactive-mode business configuration.
+
+
+## v3.2.0 optional AI architecture
+
+```text
+AI Copilot (optional)
+  ↓ allowlisted read-only tools
+Creator Data Hub Core
+  ↓
+SQLite fact / deterministic / human layers
+```
+
+The AI layer is not a prerequisite for importing, syncing, classifying, discovering, monitoring, exporting or maintaining data. `creator_hub.service.CreatorHub` lazily loads the AI layer only when an AI command or AI endpoint is used. AI results live in separate `ai_*` tables.
+
+v3.1 routes AI calls through a small protocol-adapter layer (`openai_responses`, `openai_chat`, `anthropic_messages`, `gemini_generate_content`, `mock`). Base URL and model ID are configuration data rather than hard-coded vendor/model catalogs. API secrets remain outside SQLite/browser state. The AI Search Agent may request the existing controlled YouTube discovery service, but the AI provider never receives arbitrary database or network write access.
+
+## v3.6 commercial fact / workspace layer
+
+- `creator_business_metrics`: period/source-aware commercial facts (GMV, acquisition and future UgPhone backend feeds).
+- `saved_views`: persistent UI query/view state, intentionally separate from facts.
+- `product_ui.js`: shared Inspector behavior; `saved_views.js`: shared saved-view behavior; `business_metrics.js`: local business-file import client.
+- Creator facts expose only aggregated commercial summaries for filtering/sorting/secondary metrics; detailed lineage stays in the business fact table and Inspector.

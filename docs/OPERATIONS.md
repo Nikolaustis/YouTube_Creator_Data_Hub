@@ -1,6 +1,6 @@
 # Operations and data safety
 
-This document covers routine operation for YouTube Creator Data Hub v2.1.0. All commands are run from the Skill root. On Windows, `scripts\python-run.cmd` automatically resolves `python` or `py -3`.
+This document covers routine operation for YouTube Creator Data Hub v3.9.0. All commands are run from the Skill root. On Windows, `scripts\python-run.cmd` automatically resolves `python` or `py -3`.
 
 ## Database health
 
@@ -41,6 +41,8 @@ Restore validates the source and creates a pre-restore safety backup first. Stop
 ```
 
 Creator sync state records last attempt/status/error, error category, consecutive failure count, next normal sync, next retry and suspension. Retry delay increases from 1h → 6h → 24h → 48h → 72h. Repeated non-quota/non-auth failures suspend after five failures to avoid repeatedly spending quota. Resume from the Dashboard or a batch Creator action after correcting the cause.
+
+v3.5.0 separately tracks **channel availability**. A `channels.list` miss first becomes `unavailable_pending`; it does **not** by itself imply a Community Guidelines violation. The Hub performs a best-effort public channel-page check. Explicit public-page markers can produce `terminated_community`, `terminated_copyright`, or `deleted`. Repeated unresolved misses become `unavailable_unknown`. Terminal availability states stop ordinary monitoring/retry while preserving all local Creator/Video history. Use **数据更新 → 监控健康 → 重新检测频道状态** to recheck; if the channel is available again, the Dashboard can restore monitoring.
 
 Priority cadence remains high 6h, normal 24h, low 72h, archive 168h. The Windows task wakes every six hours and only processes due/retry-eligible creators.
 
@@ -89,3 +91,33 @@ Permanent exclusions are hidden from new live discovery results by default but c
 ## Unified freshness
 
 Creator rows/details distinguish the freshness of channel facts, video metrics, classification, contacts, discovery and complete sync. Do not treat one recent timestamp as proof that every data category is fresh.
+
+
+## AI operations
+
+Use `hub.py ai-status` to inspect AI availability without making a model call. AI run history and token counts are stored in `ai_runs`; cached results avoid repeated calls when source data, model and prompt version have not changed. The daily request soft limit is local and only affects AI features.
+
+
+## Long-running Dashboard jobs (v3.9.0)
+
+Interactive Dashboard operations that may take noticeable time run through the local background Job Center. Job state is mirrored into SQLite `job_runs`, so page navigation and browser refresh restore active/recent progress automatically. The Job Center reports task stage, current/total when available, percentage, elapsed time and completion/failure. A Python worker thread itself cannot survive a Dashboard server restart; any queued/running record left by a stopped server is therefore marked `已中断` on next startup and must be explicitly rerun. Already committed business data is not rolled back.
+
+## Manual Creator availability overrides (v3.9.0)
+
+In **数据更新 → 监控健康**, operators can batch-set an auditable manual channel status, content status and monitoring policy. Use this when YouTube/API detection remains `暂时不可用 · 待确认` but a human has verified termination, deletion, all-public-videos-cleared, long inactivity, or another lifecycle state. The system-detected status is retained separately; clearing the manual override returns the effective display to the system result. Terminal/stopped policies preserve all local history while preventing wasteful ordinary synchronization retries.
+
+## Creator commercial metrics (v3.6.0)
+
+Use **数据更新 → 商业表现数据** to import CSV/XLSX/XLSM containing Creator identity plus GMV / 拉新 / orders / revenue / commission / cost columns. Matching is deterministic: Channel ID, YouTube channel URL, unique Handle, or unique exact channel title. Unmatched rows are reported and are not guessed into the database. Re-importing the same source row updates the existing fact.
+
+CLI equivalent:
+
+```powershell
+.\scripts\python-run.cmd hub.py import-business "C:\path\creator-business.xlsx"
+```
+
+The facts remain separate from YouTube facts and preserve period/currency/source lineage. Use the Creator Inspector or Creator Library GMV/拉新 columns to review totals.
+
+## Saved Views (v3.6.0)
+
+Creator Library and Video Classification can save the current filter/sort/page-size state to SQLite. Saved Views persist across browser sessions and are stored separately from the underlying facts.

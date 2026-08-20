@@ -1,0 +1,437 @@
+{
+  "name": "youtube-creator-data-hub",
+  "version": "3.9.0",
+  "type": "cover-package",
+  "database_included": false,
+  "upgrade_compatible": true,
+  "schema_version": 15,
+  "metric_schema": "creator-video-grain-v1",
+  "release_focus": [
+    "conclusion-first-tables-no-horizontal-scroll",
+    "dynamic-column-budget-for-filter-sort-explainability",
+    "identity-tags-one-per-line-centered",
+    "creator-library-10-column-core-view",
+    "discovery-process-metadata-moved-to-inspector",
+    "discovery-action-dropdown-grouping",
+    "video-title-wrap-and-row-review-menu",
+    "creator-video-entity-links-preserved",
+    "schema-15-no-new-migration"
+  ],
+  "files": [
+    {
+      "path": ".gitignore",
+      "size_bytes": 228,
+      "sha256": "184e4b3d28331535ae27d1cbea429a112addc87870a683e3d58c1d6e4a4d4ab0"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "size_bytes": 35524,
+      "sha256": "1cbe6a38f437659b28c82436fc4dc6c587d60b0b31b74ccd6af0753edead988a"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 37048,
+      "sha256": "eef1152ce620fefc5a011ad176cb218d115640c4e8d13634d5f2c3b320274ba2"
+    },
+    {
+      "path": "SKILL.md",
+      "size_bytes": 27370,
+      "sha256": "cd4bbcd61f1d0dca4f780f487773a606c2ff365c6035e7d1197201b7278c2b55"
+    },
+    {
+      "path": "VERSION",
+      "size_bytes": 6,
+      "sha256": "5c0f9e710d6f59bb59980444f3dc58886fc564a0a2d8a1d534d3296be2c67da8"
+    },
+    {
+      "path": "agents/openai.yaml",
+      "size_bytes": 499,
+      "sha256": "e2f85478b51f3b35195ed431082e2091131ff706db5283f0cf63e6004414c9ba"
+    },
+    {
+      "path": "config/brands.json",
+      "size_bytes": 3976,
+      "sha256": "09fbe988f3d6d8c24ffd6ffbc7e2f5691175c4703653fe6b393e8972779153b8"
+    },
+    {
+      "path": "config/geography.json",
+      "size_bytes": 31534,
+      "sha256": "3034c425c5bbda1e45723e57765a642f3663102f0771988d8249e261e6f868b0"
+    },
+    {
+      "path": "config/query_packs.json",
+      "size_bytes": 11341,
+      "sha256": "2654322c2343cb9e1028ca1a04414cf659306760f0c2dc528ca37e7982962a43"
+    },
+    {
+      "path": "config/settings.json",
+      "size_bytes": 1442,
+      "sha256": "8b1e72f7b2ea34af2c7b008a06692637b9cbcf37e6abb6ec69ccd1b2014a4964"
+    },
+    {
+      "path": "creator_hub/__init__.py",
+      "size_bytes": 22,
+      "sha256": "c9adc0be6f6a1f37ad220640a5233a7878f23b52983aa6d17f9c634a66c8a9d8"
+    },
+    {
+      "path": "creator_hub/ai/__init__.py",
+      "size_bytes": 186,
+      "sha256": "51f8e8e687502aefea3f1eaaebccdaab83206afb85a9884c1ab214750ab78d9d"
+    },
+    {
+      "path": "creator_hub/ai/local_tools.py",
+      "size_bytes": 12383,
+      "sha256": "35def8ebee342dff145c62285f4c159b914cb2c74d674298266e9e59b931982f"
+    },
+    {
+      "path": "creator_hub/ai/prompts.py",
+      "size_bytes": 5040,
+      "sha256": "30b3a2a75d737325a211dc723db40639b5843ab526d5b262412b2f46058936d3"
+    },
+    {
+      "path": "creator_hub/ai/provider.py",
+      "size_bytes": 20140,
+      "sha256": "0f3919454d14fb176be05a8b6fe2b2e908153d56442ea847405fa66dcbd6aa2a"
+    },
+    {
+      "path": "creator_hub/ai/service.py",
+      "size_bytes": 60928,
+      "sha256": "06f183ae1722092e8e4092fc4911030ac171c0c3a11bc082c8e6d2d7814a2524"
+    },
+    {
+      "path": "creator_hub/classifier.py",
+      "size_bytes": 6899,
+      "sha256": "731d18a76f73f16475b70ab2d3ed612c0be14d7e6d0bb8cb25e14e4e1f25d8da"
+    },
+    {
+      "path": "creator_hub/config.py",
+      "size_bytes": 1054,
+      "sha256": "bf9982a109c22036281ad1b92891ee1f3996644ac1ecb4f68e1a7c1141f3b49b"
+    },
+    {
+      "path": "creator_hub/contacts.py",
+      "size_bytes": 3203,
+      "sha256": "0281d5f1c3e7ad5ecb2f20e7d464127bf7462ed91b2aece36a3808cb429e6961"
+    },
+    {
+      "path": "creator_hub/country.py",
+      "size_bytes": 3808,
+      "sha256": "198ec18b442d16509ce7fa2402b520ab759e041b758f4af569cf9a963b01d5ea"
+    },
+    {
+      "path": "creator_hub/dashboard.py",
+      "size_bytes": 107929,
+      "sha256": "b8d8a61b7bea692f2d68a5801a4ddc064cc14b9bef3c9263dc4706c790183393"
+    },
+    {
+      "path": "creator_hub/db.py",
+      "size_bytes": 31039,
+      "sha256": "fdf72ab1f64283082d8caf48c3258934f8c12af7600e8a51651b587c4e744f93"
+    },
+    {
+      "path": "creator_hub/exporter.py",
+      "size_bytes": 8332,
+      "sha256": "1bc94407f682cbe48886cd1effa5360afcd4e40a757ebe816c5813aaf99ebf3c"
+    },
+    {
+      "path": "creator_hub/geography.py",
+      "size_bytes": 1326,
+      "sha256": "a9eeba562376f6b74427e8b2fcaeb84ca8dbdd009bbc9535f5860649b60edf5c"
+    },
+    {
+      "path": "creator_hub/importers.py",
+      "size_bytes": 18801,
+      "sha256": "b8f084425fbf00edef41d9d0ab10e673f4dfd0cb7fd9734803e787beda3ea4ed"
+    },
+    {
+      "path": "creator_hub/jobs.py",
+      "size_bytes": 8778,
+      "sha256": "7ee2958764994cd263dd9949bf7e250c9d2b2d7fc42cfaaec69293562f8d6acc"
+    },
+    {
+      "path": "creator_hub/metric_config.py",
+      "size_bytes": 8277,
+      "sha256": "1abdeeebfea4734254085842f472cafefdeb1a3f02c1dc87e25be5982cec8e05"
+    },
+    {
+      "path": "creator_hub/metric_workspace.py",
+      "size_bytes": 17443,
+      "sha256": "3c3256cbb9860261afae752b33623fdf99ac477f6fe4989ebb3d09affad6e19f"
+    },
+    {
+      "path": "creator_hub/monitoring.py",
+      "size_bytes": 2526,
+      "sha256": "f6ed8dff0c1cb799c46fb3879f6bcc629d98b252b76b566549c4bf902840df57"
+    },
+    {
+      "path": "creator_hub/scoring.py",
+      "size_bytes": 3897,
+      "sha256": "6285ee73b1fe0bf7c1c14c8baafbfff7fbbc671d8779a5d4f032ee8c95ad7d81"
+    },
+    {
+      "path": "creator_hub/server.py",
+      "size_bytes": 40839,
+      "sha256": "7a1bfe746681163855aac702be3df155416261646d7e700d8609839e8017bf66"
+    },
+    {
+      "path": "creator_hub/service.py",
+      "size_bytes": 148088,
+      "sha256": "0b9d59f8bc28d9e42e6aba57567f5014922b81784b85ffabf72c7da11c78bdf3"
+    },
+    {
+      "path": "creator_hub/static/ai_copilot.js",
+      "size_bytes": 35901,
+      "sha256": "9cca1b8810ed185877148c051ce29a15e83cad3a04eed1562ac360893c451abc"
+    },
+    {
+      "path": "creator_hub/static/business_metrics.js",
+      "size_bytes": 1185,
+      "sha256": "33df085789ef31e25a552babf3da118b7c57290e2a8137ba148450a795eca16a"
+    },
+    {
+      "path": "creator_hub/static/creator_detail.js",
+      "size_bytes": 5050,
+      "sha256": "7409b87bd920ffc05684f47c83dfebdaec1d2305b9e26609e32a94a5ba86a926"
+    },
+    {
+      "path": "creator_hub/static/discovery.js",
+      "size_bytes": 53259,
+      "sha256": "dacf9a7bb07bd6addcf86740711febdfdb60cae2aae6fdb91ed7ee502a9e5603"
+    },
+    {
+      "path": "creator_hub/static/export_tools.js",
+      "size_bytes": 1285,
+      "sha256": "3c0101300f9b8b7cdd2fa4ab645335e783a3225915acafaa22ff3a59e0f3b7ab"
+    },
+    {
+      "path": "creator_hub/static/job_progress.js",
+      "size_bytes": 5454,
+      "sha256": "dadd31a73ce113453048c110262cbfbddca0afa9720a611b1da3a90d273206ae"
+    },
+    {
+      "path": "creator_hub/static/maintenance.js",
+      "size_bytes": 15702,
+      "sha256": "c1a6d1cb1d86dd0ad34092d52f88aa8f5fbd496dc7986928bb6fee6047757414"
+    },
+    {
+      "path": "creator_hub/static/metrics_workspace.js",
+      "size_bytes": 51664,
+      "sha256": "6a3c896734433eb7d0e73e732ff8b33e883356e02f8b43a3bb31584c9e520d54"
+    },
+    {
+      "path": "creator_hub/static/overview_filters.js",
+      "size_bytes": 21929,
+      "sha256": "83735f14465b876c6eb0e01e073ba6b8cc02cb278588b4d246f73d2d31e14a75"
+    },
+    {
+      "path": "creator_hub/static/product_ui.js",
+      "size_bytes": 4109,
+      "sha256": "51806e0c341f51ba1b45a0593af6488d8893b4cbd728d84e94e89a6a9eaaa4f0"
+    },
+    {
+      "path": "creator_hub/static/review.js",
+      "size_bytes": 23485,
+      "sha256": "2849dff5c15ad928641b1d77601823b2eb623ee23293bd3e9381862ec40c8ffe"
+    },
+    {
+      "path": "creator_hub/static/runtime_status.js",
+      "size_bytes": 978,
+      "sha256": "a10aea854c90fe37cd12e92ba49f952d8d98b1724abca3db7bf2cc0f71186ca8"
+    },
+    {
+      "path": "creator_hub/static/saved_views.js",
+      "size_bytes": 1628,
+      "sha256": "439831532681bcf07255da6ca08bb263f2ca61a7145de5282f95b0885189db63"
+    },
+    {
+      "path": "creator_hub/static/section_nav.js",
+      "size_bytes": 2398,
+      "sha256": "2678f2ade65b079c407d216d9c2cca1012befd45af726adfb8a9c3cf2c796e4c"
+    },
+    {
+      "path": "creator_hub/static/table_tools.js",
+      "size_bytes": 6797,
+      "sha256": "e3fea1a32633aa64972c2aa9204f13a860abb33f54b89483db820caaf1b94545"
+    },
+    {
+      "path": "creator_hub/util.py",
+      "size_bytes": 4551,
+      "sha256": "4968b67d9f3bb9ede482b3a64402f167014b0380528bac2e4a6617ee28745e0f"
+    },
+    {
+      "path": "creator_hub/web_search.py",
+      "size_bytes": 7892,
+      "sha256": "24f21c0600beaa434e85f6040607e810708f42c2e5b446d68c5d32d25b9f3149"
+    },
+    {
+      "path": "creator_hub/youtube_api.py",
+      "size_bytes": 5271,
+      "sha256": "cd868bb067c722b54995b54e482eea6fcb07f18cf09c9b1a0e89c060c5ac70d7"
+    },
+    {
+      "path": "docs/AI.md",
+      "size_bytes": 8585,
+      "sha256": "3817243084b349786c67f6cc6ab223b29399d46d29d29236864121182fe02cff"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "size_bytes": 4083,
+      "sha256": "afa45f57f98ca119f4c692b614f7da2f5b3f86aee509906aca950126139b7e0d"
+    },
+    {
+      "path": "docs/CODEX_EXAMPLES.md",
+      "size_bytes": 1488,
+      "sha256": "11689e77977fbf122836f72ae120f3006682c4841c0df365d0e3bb17820ab8ab"
+    },
+    {
+      "path": "docs/DATA_DICTIONARY.md",
+      "size_bytes": 5375,
+      "sha256": "911dc67ae12721164085c137f8519466d196d3a4d3c169eb12d5054628120e3b"
+    },
+    {
+      "path": "docs/DISCOVERY_SCORING.md",
+      "size_bytes": 1334,
+      "sha256": "43c89a295b3ce35777dc674d99f76129bc8b7e89ad5a9f77f9287af004844332"
+    },
+    {
+      "path": "docs/INSTALLATION.md",
+      "size_bytes": 4004,
+      "sha256": "9578ed4cb29d913b91510a6936d7f69dca7c863182aca97582a5cfb58b3b56a2"
+    },
+    {
+      "path": "docs/OPERATIONS.md",
+      "size_bytes": 6872,
+      "sha256": "8b1fa67834f21af1c35ba0557d1ce6a3cae84d3f326587117c8277b2f0d11eb0"
+    },
+    {
+      "path": "docs/QUERY_EXPANSION.md",
+      "size_bytes": 2311,
+      "sha256": "8b8132329dc2a895de30078dd42edccf7c676e2f67ae93ae70f7c081b6968cbe"
+    },
+    {
+      "path": "docs/SECONDARY_METRICS.md",
+      "size_bytes": 4402,
+      "sha256": "20d8f62b6bc7d0c7d7856a4a84d8aa102d1f219e1fc3f39079a958fa25d066c6"
+    },
+    {
+      "path": "hub.py",
+      "size_bytes": 18461,
+      "sha256": "4066f7ee6536401301527bff1118722b9745b4ca7799a6c756523e7f6860a400"
+    },
+    {
+      "path": "open-static-dashboard.cmd",
+      "size_bytes": 268,
+      "sha256": "089c315913f3c02c1c4addc045c131aa8e86b0ef0398297f555c581ec54c524d"
+    },
+    {
+      "path": "requirements.txt",
+      "size_bytes": 17,
+      "sha256": "9bba605fd7b6ea23038de15e5a1ae6714b3d3fb14ed2d6e6bedbfb0665ca2122"
+    },
+    {
+      "path": "scripts/ai_setup.py",
+      "size_bytes": 5555,
+      "sha256": "1f484cb410b0ac0d5dc621cfcb80079c12f95255d3363394d8353bcdf24d6fd5"
+    },
+    {
+      "path": "scripts/install-daily-sync-task.ps1",
+      "size_bytes": 1080,
+      "sha256": "61980f3072fdd72b173da0741e2ad5c7ef707c80fb6e047fdb1fc9cfade87870"
+    },
+    {
+      "path": "scripts/install-sync-task.cmd",
+      "size_bytes": 408,
+      "sha256": "1b8af47ed3797691aecc061e246a05ac6b928b9e66b45ec31e0e948445cf1c07"
+    },
+    {
+      "path": "scripts/install.cmd",
+      "size_bytes": 44,
+      "sha256": "c67c472e4178ad1080afc3d5721be93c130ab5fa8732967ee82ca77df453bf51"
+    },
+    {
+      "path": "scripts/install.ps1",
+      "size_bytes": 509,
+      "sha256": "d2026c63053a0512a32c6602bf993976a020a2451df60efeb2261a1a9f7ca644"
+    },
+    {
+      "path": "scripts/open-dashboard.cmd",
+      "size_bytes": 93,
+      "sha256": "a6f02f1ff72a56d74949bfc029a4f70d3b187911db3f170a0579e5b654d11f11"
+    },
+    {
+      "path": "scripts/open-dashboard.ps1",
+      "size_bytes": 263,
+      "sha256": "947ceae18a5f43d7b564323727bb1831772ab6fa3a970a90f4a56b24fc72b466"
+    },
+    {
+      "path": "scripts/open-interactive-dashboard.cmd",
+      "size_bytes": 93,
+      "sha256": "a6f02f1ff72a56d74949bfc029a4f70d3b187911db3f170a0579e5b654d11f11"
+    },
+    {
+      "path": "scripts/open-static-dashboard.cmd",
+      "size_bytes": 200,
+      "sha256": "a8a2afcc2cc5244300ad06f71fd8783034ebda7012d33d4f16a106c2b0c32ab6"
+    },
+    {
+      "path": "scripts/pre_upgrade_backup.py",
+      "size_bytes": 1015,
+      "sha256": "acf1a29bbbc9463693a353f6f6a1a0e14efe819b6588973e3094eaf11732d653"
+    },
+    {
+      "path": "scripts/python-run.cmd",
+      "size_bytes": 535,
+      "sha256": "699ca7c922027ba51ead52cfc839a5f835ccd4cba22b445d789606de74674756"
+    },
+    {
+      "path": "scripts/rebuild-dashboard.cmd",
+      "size_bytes": 157,
+      "sha256": "05c323587468ffca029fafb9e8cd1be6d4aca2cc9e4734564222bd72ee30e7f4"
+    },
+    {
+      "path": "scripts/self_check.py",
+      "size_bytes": 65054,
+      "sha256": "6f0b7d11fcb966675a0dd4442cc83b822ad826dee39cc118bf9c6fc333c27b42"
+    },
+    {
+      "path": "scripts/set-ai-key.cmd",
+      "size_bytes": 164,
+      "sha256": "f174c0f99fdeab49674095c39e0fadc9aaa37ce6132a4fb47754e51d07273df7"
+    },
+    {
+      "path": "scripts/set-api-key.cmd",
+      "size_bytes": 355,
+      "sha256": "72d59283ae585c4f379819bd8b4ec5ad0b7d1fd18bbb216e0b3e23893b93e71b"
+    },
+    {
+      "path": "scripts/set-api-key.ps1",
+      "size_bytes": 537,
+      "sha256": "b24a873540a6bcc11e0643ea65bbfe8bef14febaf1d353ab69c7a2689170091e"
+    },
+    {
+      "path": "scripts/sync-all.ps1",
+      "size_bytes": 605,
+      "sha256": "771b0327f7a4a4569e0d6bb25f708979594c3488acbcca69ab4c7385e655e826"
+    },
+    {
+      "path": "setup-ai.cmd",
+      "size_bytes": 114,
+      "sha256": "89f4b93a1f4d4a692a042a7976c86099bcfc3b45fad737c69b796c478e2cdd8a"
+    },
+    {
+      "path": "setup.cmd",
+      "size_bytes": 3946,
+      "sha256": "1ce5f8496c30a3696b667bf68dc7ccf0866e46ea1cffc243a2050d65c56f83ef"
+    },
+    {
+      "path": "start-dashboard.cmd",
+      "size_bytes": 205,
+      "sha256": "7ccfa8635ea0d7fb8ee46c4a52dbb3b5233604b2bc1eff538d2ff4c2277511ea"
+    },
+    {
+      "path": "upgrade.cmd",
+      "size_bytes": 1106,
+      "sha256": "c61acd347c1149d8c9e6944dac14d236b18962668d83caad08d990c285519ed6"
+    }
+  ]
+}

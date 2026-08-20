@@ -29,7 +29,7 @@ def _video_rows(conn):
 
 
 
-def xlsx_bytes(sheet_name: str, columns: list[tuple[str,str]], rows, *, metadata: list[tuple[str,Any]] | None = None) -> bytes:
+def xlsx_bytes(sheet_name: str, columns: list[tuple[str,str]], rows, *, metadata: list[tuple[str,Any]] | None = None, extra_sheets: list[tuple[str,list[tuple[str,str]],Any]] | None = None) -> bytes:
     """Build a memory-efficient XLSX from an iterable of dictionaries."""
     try:
         from openpyxl import Workbook
@@ -52,6 +52,16 @@ def xlsx_bytes(sheet_name: str, columns: list[tuple[str,str]], rows, *, metadata
         meta.append(['Field','Value'])
         for k,v in metadata:
             meta.append([k,json.dumps(v,ensure_ascii=False) if isinstance(v,(list,dict)) else v])
+    for extra_name, extra_columns, extra_rows in (extra_sheets or []):
+        ews=wb.create_sheet((extra_name or 'Extra')[:31])
+        ews.append([label for _,label in extra_columns])
+        for row in extra_rows:
+            vals=[]
+            for key,_ in extra_columns:
+                v=row.get(key) if isinstance(row,dict) else None
+                if isinstance(v,(list,dict)): v=json.dumps(v,ensure_ascii=False)
+                vals.append(v)
+            ews.append(vals)
     bio=BytesIO(); wb.save(bio); return bio.getvalue()
 
 

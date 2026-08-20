@@ -1,5 +1,130 @@
 # Changelog
 
+## v3.9.0
+
+- Dashboard 表格改为“结论优先”布局：默认主表使用 `width:100% + table-layout:fixed`，不再插入横向滚动轴或顶部横向滚动条；长标题、博主名和说明文本按列宽合理换行。
+- 博主库默认列从 12 列收敛为 10 列，移除国家证据、最近发布、竞品细分等常驻过程/次要字段；国家列只显示最终国家结果，详细来源继续保留在 Inspector/导出。
+- 身份标签改为逐标签单独一行、单元格居中并限制在当前列内，修复标签侵入后续列的问题。
+- 视频分类表继续使用“筛选/排序字段按需显列”，但主表采用固定列预算；视频标题允许多行换行，行内复核控件收拢为“复核”下拉菜单。
+- 【博主发现】本次搜索与已保存博主的批量动作统一按“处理状态 / 入库与抓取 / 监控 / 优先级 / 更多”分组；行级联系方式、加入与抓取操作也收拢为“操作”菜单。
+- 【已保存的发现记录 · 博主】主表从过程型宽表收敛为 9 个结论列：博主、订阅、国家、发现评分、Query Coverage、命中视频数、最佳命中视频与状态；原关键词、关键词来源、Discovery Run、首次/重复发现、国家证据等移入详情 Inspector。
+- 【已保存的发现记录 · 视频命中】移除实际 Query 和国家证据等常驻过程字段，保留博主、订阅、国家、视频、播放量、评分、状态与发现时间。
+- 新增发现详情 Inspector 入口，过程/审计数据不删除，只从主表退到按需查看层。
+- Schema 保持 15；本版本不修改既有 SQLite 事实。
+
+## v3.8.0
+
+- SmartTable 宽表改为合理最小列宽 + `width:max-content` + 横向滚动，新增顶部横向滚动控制与选择/实体 Sticky 列，解决博主库、已保存发现记录等宽表被强行压缩的问题。
+- Job Center 新增最小化、关闭与单任务 dismiss；关闭/隐藏仅影响前端，不终止后台任务，`job_runs` 持久历史继续保留。
+- AI Provider 对 read timeout、连接异常、429、500/502/503/504 等瞬时故障最多自动重试两次，并通过 Job Progress 显示重试状态。
+- AI Search 流程调整为先执行低成本预过滤，再将 Profile Budget 用于更有潜力的 Creator；Profile 上限显式写入 Result Set 元数据。
+- 修复长期制作 Continuity Gate：以频道级主题上下文确认基础主题后，近期 AFK/Auto Farm/Overnight/Multi-account 等场景视频可计入连续性，不再要求每条视频标题重复完整游戏名。
+- 未完成 Profile 的候选改为 `Pending Verification / 待验证`，不计作过滤失败且不能进入正式高适配结果；XLSX 增加 Pre-filter Candidates、Profile Budget、Pending Verification。
+- Query Planner Prompt 升级至 v6；Schema 保持 15。
+
+## v3.7.0
+
+- 后台任务状态持久化到 `job_runs`；Job Center 在任意 Dashboard 页面启动时自动恢复活动/最近任务，浏览器刷新与页面切换不再丢失进度。服务重启无法续跑的任务明确标记为中断。
+- 新增 `creator_availability_overrides` 与审计表：监控健康支持人工确认频道终止/删除/失效、无公开视频、历史视频清空、长期停更及监控策略，且保留系统原始检测。
+- AI Query Planner 升级 v5，直接接受 Query Budget，输出最终执行 Query；去除二次大规模重组并修复重复主题 Query。
+- “长期制作”从偏好加分改为硬约束，默认最近50条中相关内容 ≥5 且覆盖 ≥3个月；未完成 Profile 的候选不进入正式长期 Creator Result Set。
+- AI Result Set 新增内容场景适配、连续性、品牌安全、体量适配、Query Coverage 五维评分及 A/B/C/D 综合等级。
+- Creator sourcing 默认剔除云手机官方/产品账号、游戏官方/开发者账号与明确官方预告来源，以及脚本/外挂/漏洞为主的频道；过滤类别、品牌安全标记进入 Result Set 与 XLSX。
+- Schema 升至 15，新增 `job_runs`、`creator_availability_overrides`、`creator_availability_override_audit`。
+
+## v3.6.0
+
+- 新增 Creator 商业表现事实层 `creator_business_metrics`：保存 GMV、拉新等指标以及周期、币种、Campaign、Region、来源、导入批次、捕获时间和原始行追溯。
+- 【数据更新】新增商业表现 CSV/XLSX/XLSM 导入；按 Channel ID / Channel URL / Handle / 唯一精确频道名确定性匹配，未匹配行只报告不猜测。`import-v2` 同时扫描旧商业表格，并新增 `hub.py import-business`。
+- 博主库新增 GMV/拉新摘要和排序，GMV/拉新成为 Creator Fact，可与 YouTube 客观数据、品牌内容、身份标签组合用于二次指标。
+- 新增 `saved_views` 与 Saved Views 前端组件，博主库、视频分类可以保存/恢复筛选和排序视图。
+- 新增统一 Creator Inspector 右侧抽屉；博主库“数据状态”改为摘要 + 按需详情，商业表现与数据新鲜度在抽屉展开。
+- 博主库批量按钮重组为 Context Action Bar（监控 / 优先级 / 标签），保留既有动作但降低视觉噪声。
+- Creator/Video 名称在主要表格中统一使用 YouTube 外链；表格采用紧凑单行表头、文本截断和按需列显示，视频分类继续执行“筛选/排序字段自动显列 + 蓝色表头”。
+- Schema 升至 14，新增 `creator_business_metrics`、`saved_views`；升级不覆盖既有 Creator/Video/人工复核数据。
+
+## v3.5.0
+
+- 新增长耗时任务进度中心：离线重分类、博主发现、AI 搜索 Agent、批量抓取/同步等可在 Dashboard 固定进度卡中看到阶段、当前/总数、百分比与耗时，不再只有不醒目的等待文字。
+- 统一表格可解释性：筛选/排序使用的指标必须在表格中可见，并以蓝色表头突出；视频分类主表默认以“有效分类（人工优先）”作为业务分类；“系统原始分类”默认隐藏，仅在筛选/排序该字段或进行人工/系统不一致审计时自动显列并高亮。
+- 新增 Creator 频道可用性生命周期：将频道终止/删除与普通同步失败分离。只有公开 YouTube 页面明确给出社区准则或版权终止信息时才记录具体终止原因；确认终止/删除后停止无意义自动重试，但保留全部本地历史数据。
+- 监控健康拆分为“频道状态 / 同步健康 / 监控状态”，支持单条/批量重新检测频道状态。
+- Schema 升级至 13，仅增加频道可用性状态字段，不改动既有 Creator/Video 数据口径。
+
+
+## v3.4.0
+
+- 将“有效分类（人工优先）”确立为视频分类的业务默认口径：筛选、排序、统计、二次指标和导出均优先使用人工分类；系统原始分类保留作审计，并新增分类来源及人工/系统不一致筛选。
+- 修复【博主发现 → 已保存的发现记录】启动时先渲染全部历史 DOM、随后才分页的问题：静态兜底预览限制为 30 条，交互模式优先读取第一页 API 数据。
+- 【数据更新 → 监控健康】博主名称增加 YouTube 主页链接；明确六种健康状态及原因；新增单条/批量立即同步，支持增量、仅刷新视频指标、仅刷新频道和全历史。
+- AI 搜索 Agent 从“AI 只生成 Query”升级为“Query Planning + Fit Criteria + YouTube Discovery + 最近上传抽样 + Objective Fit Filter/Ranking”。
+- Planner v4 把订阅范围、基础主题匹配、搜索场景词、排除词和长期制作偏好保存为结构化 Fit Criteria；重要搜索概念优先保证进入实际 Query。
+- 对未明确数字的“中小体量”默认采用 ≤100,000 订阅硬约束，并把该默认明确写入 Planner Notes、Result Set 和导出，不作为隐藏规则。
+- AI Agent 对最多 100 个候选 Creator 轻量抽样最近最多 50 条上传，不把这些候选视频写入本地库；根据主题命中、目标要求词、连续制作月份、Query Coverage 与订阅约束进行过滤/评分。
+- AI Result Set 区分本地“未采集”与真实 0；结果表新增目标适配分/等级/证据、最近样本相关视频与覆盖月份。
+- AI Result Set XLSX 补齐原始搜索要求、语言/地区/国家/时间范围、Query 上限、Planner Strategy/Fit Criteria、计划/实际 Query、原始/保留/过滤数量、AI Provider/Model/Prompt Version，并新增 Query Details 工作表。
+- Schema 保持 12；无需迁移业务数据。
+
+## v3.3.2
+
+- 分类器将 `AFK / Auto Farm / 24/7 / multi-instance` 从“云手机实体证据”拆为“使用场景/发现信号”；这些词单独出现时不再触发【其他云手机】。
+- 新增 `cloud_entity_terms` 与 `use_case_terms` 分层；只有明确云手机实体词或已知品牌证据才能进入云手机分类。
+- 已知品牌弱证据不再错误兜底为【其他云手机】，而是进入【待复核】。
+- 官方品牌域名 + 产品/登录/下载/推广路径可升级为品牌 `probable` 证据；覆盖 `cloudemulator.net/app/sign-in` 等 RedFinger 场景。
+- 【多品牌云手机】扩展为任意两个及以上强识别云手机品牌，不再要求必须包含 UgPhone。
+- Dashboard【视频分类】新增“离线重新识别全部系统分类”，可修复旧规则已经稳定写入的历史系统分类；0 YouTube API 调用，并保留人工修正。
+- 系统分类单元格显示分类规则版本，并在证据列保留 `use_case_not_cloud_evidence:*` / `cloud_entity_term:*` 审计原因。
+
+## v3.3.1
+
+- 修复已配置 `CREATOR_HUB_AI_API_KEY` 的 Windows 环境中运行 `upgrade.cmd` 时，Mock AI 自检错误读取真实 API Key 并触发 AssertionError 的问题。
+- `mock` / `disabled` 协议现在明确不读取、不暴露任何真实 AI API Key；切换回在线协议时原有 Key 不受影响。
+- Self-check 新增“机器已预先配置 AI Key”回归场景，确保升级检查不再依赖用户宿主环境的密钥状态。
+- Schema 保持 12；无需恢复数据库备份，也没有数据迁移变化。
+
+## v3.3.0
+
+- 统一 Creator / Video 的 Action Parity：只要表格支持多选，单条可执行动作必须有对应批量入口；博主发现与已保存发现博主新增按时间范围批量抓取并入库。
+- 批量抓取支持近7/30/60/90/180/365天、指定日期范围与“全历史（最多10,000条）”；后端逐 Creator 隔离失败，不在循环中重建 Dashboard。
+- 交互 Dashboard 新增实时事实/统计/指标接口；抓取、入库、同步状态、人工复核、标签与工作流等写库后，总览和二次指标直接重新读取 SQLite，无需重启服务或执行 upgrade。
+- 总览动态刷新 Creator Facts、Dashboard Stats 与 Secondary Metric Cubes；二次指标页面在数据变更/重新聚焦时刷新事实与指标立方体。
+- 监控健康表补齐多选、当前页全选、全部结果全选和批量恢复异常同步，使单条“恢复同步”具备批量等价操作。
+- 批量开启监控/设置优先级对已入库 Creator 仅更新 SQLite，只有发现结果尚未入库时才请求频道信息，避免无意义消耗 YouTube API 配额。
+- Schema 保持 12；本次不新增业务表，不改变现有数据库事实。
+
+## v3.2.0
+
+- AI 检索统一引入 Result Set：Ask Hub 与 AI 搜索 Agent 每次执行均自动留档，可重新打开、筛选、排序、30条/页分页和按当前条件导出 XLSX。
+- 新增 `ai_result_sets` / `ai_result_items`，Schema 升至 12；AI 搜索 Result Set 同时关联 AI Run 与 Discovery Run。
+- `ai_runs` 新增输入/结果快照与 cache-hit 标记；即使命中本地 AI 缓存，每次用户执行仍形成独立调用记录。
+- Ask Hub 将业务结果上限与 Dashboard 分页拆开；除非用户明确要求 Top N，否则本地查询返回全部匹配 Creator，再按30条/页展示。
+- Creator Brief 改为本地 Creator 搜索候选 + 单选锁定；Creator 对比改为候选搜索 + 2–5个标签式锁定。
+- “搜索目标”重命名为“AI 搜索要求（可选）”，并补充区域、国家等结构化硬约束。
+- AI 结果集支持跨页批量选择语义和后续 Creator 批量操作接口。
+- Creator Brief、Creator 对比、七日 Brief 均可导出当前分析结果；分析结果继续保留在 AI Run / Finding 体系。
+
+## v3.1.0
+
+- Replace provider/model presets with protocol-oriented AI configuration: protocol + custom Base URL + local API Key + free-form model ID.
+- Add protocol adapters for OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages, Gemini generateContent and Mock without adding a mandatory AI SDK dependency.
+- Add Dashboard API-key entry/clear, model discovery and connection test; API keys are persisted only in a provider-neutral local secret slot and never in SQLite/browser storage.
+- Make `setup-ai.cmd` provider-neutral and allow manual model IDs even when a remote model-list endpoint is unavailable.
+- Upgrade AI Query Planner to AI Search Agent: planned queries are executed through the existing YouTube Data API discovery pipeline and persist normal discovery run/creator/video records.
+- Add `ai-models`, `ai-test` and `ai-query-search` CLI commands while retaining plan-only diagnostics.
+- Preserve v3.0 persisted provider settings during migration to the new protocol field. Schema remains 11.
+
+## v3.0.0
+
+- Add an optional AI Copilot layer while preserving a complete AI-OFF product path. AI is disabled by default and the core dependency set does not require an AI SDK.
+- Add Ask Hub: AI converts natural language into an allowlisted read-only Creator query plan; SQLite executes the plan locally.
+- Add evidence-grounded Creator Brief, 2-5 Creator comparison, discovery Query Planner and seven-day Creator Intelligence Brief.
+- Add provider abstraction (`disabled` / `mock` / `openai`), request caching, daily local request soft limit and prompt-version tracking.
+- Add `ai_runs`, `ai_findings`, `ai_evidence`, `ai_feedback` and `ai_cache`; AI findings stay separate from deterministic facts, scores and human labels.
+- Add `setup-ai.cmd`, `scripts/set-ai-key.cmd`, `docs/AI.md`, AI Dashboard page and CLI commands.
+- OpenAI mode reads `OPENAI_API_KEY` only from the environment and does not persist it in SQLite/browser state; remote response storage is off by default.
+- Bump SQLite Schema to 11; existing Creator/Video/Discovery/Label data remains unchanged.
+
+
 ## v2.1.0
 
 - 【数据更新 → 监控健康】改为标准分页表格，默认每页 30 条，并提供页码、跳转和每页数量设置。
@@ -201,8 +326,6 @@
 - 博主与视频名称增加直接跳转 YouTube 的超链接，同时保留本地博主详情入口。
 - 身份标签删除通用“竞品博主”，改为 LDCloud合作博主、RedFinger合作博主、VSPhone合作博主。
 - 已保存发现记录不再只截取最近 1000 条，静态看板可分页查看完整发现记录。
-
-# Changelog
 
 ## 0.2.0 — 2026-08-13
 

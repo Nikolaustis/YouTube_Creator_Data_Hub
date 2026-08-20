@@ -28,6 +28,17 @@ async function post(path,payload={}){
   if(!r.ok||x.ok===false)throw new Error(x.error||'请求失败');
   return x;
 }
+async function refreshLiveMetricData(){
+  if(!interactive)return;
+  const [facts,base]=await Promise.all([post('/api/creators/facts',{}),post('/api/metrics/base',{})]);
+  creators.splice(0,creators.length,...(facts.creators||[]));
+  FACTS.creators=creators;
+  BASE.cubes=base.cubes||{};
+  BASE.brands=base.brands||BASE.brands||[];
+  BASE.generated_at=base.generated_at||BASE.generated_at;
+  window.CDH_CREATOR_FACTS=FACTS;window.CDH_METRIC_BASE=BASE;
+  resultPage=1;renderAll();
+}
 
 function emptyState(){return {schema_version:1,metrics:[],rules:[],activeRule:'',filters:[]}}
 function legacyLabelFalse(op,value){const n=Number(value);return (op==='eq'&&n===0)||(op==='lte'&&n<=0)||(op==='lt'&&n<=1)||(op==='neq'&&n===1)}
@@ -390,16 +401,33 @@ function sortHeaderClass(sortKey,key){return sortKey===key?' sort-active':''}
 function renderResults(){
   fillResultSort();const sortKey=document.getElementById('resultSort').value,sortM=sortMetric(sortKey),fixedSort=fixedKindForMetric(sortM),head=document.getElementById('resultHead');
   const coreKeys=new Set(['channel_title','country','subscriber_count','channel_view_count','stored_videos','last_synced_at']);
+  const activeBase=new Set(),filterExtras=[],extraSeen=new Set();
+  for(const f of (state.filters||[])){
+    if(f.metric_type==='geography'){activeBase.add('country');continue}
+    if(f.metric_type==='creator_label'){activeBase.add('identity');continue}
+    if(f.metric_type==='creator_fact'){
+      if(coreKeys.has(f.metric_key))activeBase.add(f.metric_key);
+      else if(creatorFactFields[f.metric_key]&&!extraSeen.has(`fact:${f.metric_key}`)){extraSeen.add(`fact:${f.metric_key}`);filterExtras.push({kind:'fact',key:f.metric_key,name:creatorFactFields[f.metric_key]})}
+      continue;
+    }
+    if(['constructed','ratio'].includes(f.metric_type)){
+      const m=metricById(f.metric_key);if(m&&!extraSeen.has(`metric:${m.id}`)){extraSeen.add(`metric:${m.id}`);filterExtras.push({kind:'metric',key:m.id,name:m.name})}
+    }
+  }
   const extraSortMetric=sortM&&!fixedSort?sortM:null;
   const extraSortFact=!sortM&&!coreKeys.has(sortKey)&&creatorFactFields[sortKey]?{key:sortKey,name:creatorFactFields[sortKey]}:null;
-  head.innerHTML='<tr><th class="'+(sortKey==='channel_title'?'sort-active':'')+'">博主</th><th class="'+(sortKey==='country'?'sort-active':'')+'">国家</th><th class="'+(sortKey==='subscriber_count'?'sort-active':'')+'">订阅数</th><th class="'+(sortKey==='channel_view_count'?'sort-active':'')+'">频道累计播放量</th><th class="'+(sortKey==='stored_videos'?'sort-active':'')+'">本地视频数</th><th>身份标签</th><th class="fixed-playback '+(fixedSort==='ugphone'?'sort-active':'')+'" title="全部时间 · Median">UgPhone视频播放量<div class="small">Median · 全部时间</div></th><th class="fixed-playback '+(fixedSort==='all'?'sort-active':'')+'" title="全部时间 · Median">总视频播放量<div class="small">Median · 全部时间</div></th><th class="fixed-playback '+(fixedSort==='competitor'?'sort-active':'')+'" title="全部时间 · Median">竞品视频播放量<div class="small">Median · 全部时间</div></th>'+(extraSortMetric?`<th class="sort-active" title="当前排序指标">${esc(extraSortMetric.name)}</th>`:extraSortFact?`<th class="sort-active" title="当前排序指标">${esc(extraSortFact.name)}</th>`:'')+'<th class="'+(sortKey==='last_synced_at'?'sort-active':'')+'">最近同步</th></tr>';
+  const hcls=(key,sort=false)=>`${sort?' sort-active':''}${activeBase.has(key)?' filter-sort-active':''}`.trim();
+  const filterHeads=filterExtras.map(x=>`<th class="filter-sort-active" title="当前筛选指标" data-field="${esc(x.kind==='metric'?'metric:'+x.key:x.key)}">${esc(x.name)}</th>`).join('');
+  const sortIsFilter=extraSortMetric?extraSeen.has(`metric:${extraSortMetric.id}`):extraSortFact?extraSeen.has(`fact:${extraSortFact.key}`):false;
+  head.innerHTML='<tr><th class="'+hcls('channel_title',sortKey==='channel_title')+'" data-field="channel_title">博主</th><th class="'+hcls('country',sortKey==='country')+'" data-field="country">国家</th><th class="'+hcls('subscriber_count',sortKey==='subscriber_count')+'" data-field="subscriber_count">订阅数</th><th class="'+hcls('channel_view_count',sortKey==='channel_view_count')+'" data-field="channel_view_count">频道累计播放量</th><th class="'+hcls('stored_videos',sortKey==='stored_videos')+'" data-field="stored_videos">本地视频数</th><th class="'+(activeBase.has('identity')?'filter-sort-active':'')+'" data-field="identity">身份标签</th><th class="fixed-playback '+(fixedSort==='ugphone'?'sort-active':'')+'" title="全部时间 · Median">UgPhone视频播放量<div class="small">Median · 全部时间</div></th><th class="fixed-playback '+(fixedSort==='all'?'sort-active':'')+'" title="全部时间 · Median">总视频播放量<div class="small">Median · 全部时间</div></th><th class="fixed-playback '+(fixedSort==='competitor'?'sort-active':'')+'" title="全部时间 · Median">竞品视频播放量<div class="small">Median · 全部时间</div></th>'+filterHeads+(!sortIsFilter&&extraSortMetric?`<th class="sort-active" title="当前排序指标" data-field="metric:${esc(extraSortMetric.id)}">${esc(extraSortMetric.name)}</th>`:!sortIsFilter&&extraSortFact?`<th class="sort-active" title="当前排序指标" data-field="${esc(extraSortFact.key)}">${esc(extraSortFact.name)}</th>`:'')+'<th class="'+hcls('last_synced_at',sortKey==='last_synced_at')+'" data-field="last_synced_at">最近同步</th></tr>';
   const q=(document.getElementById('metricSearch').value||'').toLowerCase(),rule=state.rules.find(x=>x.id===state.activeRule),rows=[];
   for(const c of creators){if(q&&!`${c.channel_title||''} ${c.handle||''} ${c.country_resolved||c.country_api||''} ${c.channel_id}`.toLowerCase().includes(q))continue;if(!chainPass(state.filters||[],c))continue;const vals=allValues(c);if(rule&&!rulePass(rule,c))continue;rows.push({c,vals})}
   const desc=document.getElementById('resultSortDir').value==='desc';rows.sort((a,b)=>{const av=resultSortValue(a,sortKey),bv=resultSortValue(b,sortKey);let z;if(typeof av==='number'&&typeof bv==='number')z=(Number.isFinite(av)?av:-Infinity)-(Number.isFinite(bv)?bv:-Infinity);else z=String(av??'').localeCompare(String(bv??''),'zh-CN',{numeric:true,sensitivity:'base'});return desc?-z:z});
   const pages=Math.max(1,Math.ceil(rows.length/resultSize));resultPage=Math.max(1,Math.min(pages,resultPage));const start=(resultPage-1)*resultSize,shown=rows.slice(start,start+resultSize),html=[];
-  for(const x of shown){const c=x.c,vals=x.vals,channelUrl=`https://www.youtube.com/channel/${encodeURIComponent(c.channel_id)}`,localUrl=`creators/${encodeURIComponent(c.channel_id)}.html`,ug=fixedPlaybackValue(c,'role:ugphone'),all=fixedPlaybackValue(c,''),comp=fixedPlaybackValue(c,'role:competitor');html.push(`<tr><td><a class="link-ext" target="_blank" rel="noopener" href="${channelUrl}"><b>${esc(c.channel_title||c.channel_id)}</b></a><div class="small mono">${esc(c.handle||c.channel_id)}</div><div class="small"><a class="link-local" href="${localUrl}">查看详情</a></div></td><td>${esc(c.country_resolved||c.country_api||'—')}</td><td>${fmt(c.subscriber_count)}</td><td>${fmt(c.channel_view_count)}</td><td>${fmt(c.stored_videos)}</td><td>${identityPills(c)}</td><td>${fmt(ug)}</td><td>${fmt(all)}</td><td>${fmt(comp)}</td>${extraSortMetric?`<td>${fmt(vals[extraSortMetric.id])}</td>`:extraSortFact?`<td>${fmt(c[extraSortFact.key])}</td>`:''}<td class="small">${esc(c.last_synced_at||'—')}</td></tr>`)}
+  for(const x of shown){const c=x.c,vals=x.vals,channelUrl=`https://www.youtube.com/channel/${encodeURIComponent(c.channel_id)}`,localUrl=`creators/${encodeURIComponent(c.channel_id)}.html`,detail=c.detail_available===false?'':`<div class="small"><a class="link-local" href="${localUrl}">查看详情</a></div>`,ug=fixedPlaybackValue(c,'role:ugphone'),all=fixedPlaybackValue(c,''),comp=fixedPlaybackValue(c,'role:competitor'),filterCells=filterExtras.map(z=>`<td>${fmt(z.kind==='metric'?vals[z.key]:c[z.key])}</td>`).join('');html.push(`<tr><td><a class="link-ext" target="_blank" rel="noopener" href="${channelUrl}"><b>${esc(c.channel_title||c.channel_id)}</b></a><div class="small mono">${esc(c.handle||c.channel_id)}</div>${detail}</td><td>${esc(c.country_resolved||c.country_api||'—')}</td><td>${fmt(c.subscriber_count)}</td><td>${fmt(c.channel_view_count)}</td><td>${fmt(c.stored_videos)}</td><td>${identityPills(c)}</td><td>${fmt(ug)}</td><td>${fmt(all)}</td><td>${fmt(comp)}</td>${filterCells}${!sortIsFilter&&extraSortMetric?`<td>${fmt(vals[extraSortMetric.id])}</td>`:!sortIsFilter&&extraSortFact?`<td>${fmt(c[extraSortFact.key])}</td>`:''}<td class="small">${esc(c.last_synced_at||'—')}</td></tr>`)}
   document.getElementById('resultBody').innerHTML=html.join('')||'<tr><td colspan="99" class="empty">没有命中的博主</td></tr>';const conditionBits=[];if(rule)conditionBits.push(`规则：${rule.name}`);if((state.filters||[]).length)conditionBits.push(`筛选：${state.filters.length} 条`);if(q)conditionBits.push('搜索词已启用');const conditionText=conditionBits.join(' · ');document.getElementById('resultConditionStatus').textContent=conditionText?`当前条件：${conditionText}`:'当前条件：无';document.getElementById('resultSummary').textContent=`共 ${rows.length} 条${rule?` · 当前规则：${rule.name}`:''} · 当前显示 ${rows.length?start+1:0}-${Math.min(start+resultSize,rows.length)}`;CDHTableTools.renderPager({page:resultPage,pages,go:p=>{resultPage=p;renderResults()},firstId:'resultFirst',prevId:'resultPrev',nextId:'resultNext',lastId:'resultLast',buttonsId:'resultPageButtons',inputId:'resultPageInput',jumpId:'resultJump',pageInfoId:'resultPageInfo'});
 }
+
 function renderAll(){renderMetrics();renderRules();renderResultFilters();renderResults()}
 
 document.getElementById('metricOutputType').onchange=()=>{syncCurrentMetricDraft();renderMetricDynamic()};
@@ -411,6 +439,6 @@ document.getElementById('resultExport').onclick=()=>{fillResultSort();const sort
 document.getElementById('exportCfg').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='creator_data_hub_metrics_config_v1.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 document.getElementById('importCfg').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{state=migrateState(JSON.parse(rd.result));persist()}catch(_){alert('配置文件无效')}};rd.readAsText(f)};
 document.getElementById('resetCfg').onclick=()=>{if(confirm('清空全部已构建指标和规则？')){state=emptyState();localStorage.removeItem(KEY);if(interactive)saveStateToDb();renderAll()}};
-fetch('/api/ping').then(r=>r.ok?r.json():null).then(async x=>{interactive=!!x;if(interactive)await hydrateStateFromDb()}).catch(()=>interactive=false);
+fetch('/api/ping').then(r=>r.ok?r.json():null).then(async x=>{interactive=!!x;if(interactive){await refreshLiveMetricData();await hydrateStateFromDb()}}).catch(()=>interactive=false);window.addEventListener('focus',()=>{if(interactive)refreshLiveMetricData().catch(()=>{})});window.addEventListener('storage',e=>{if(interactive&&e.key==='cdh-data-revision')refreshLiveMetricData().catch(()=>{})});
 document.getElementById('resultPageSize').value='30';clearMetric();clearRule();renderAll();
 })();
