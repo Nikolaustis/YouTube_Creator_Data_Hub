@@ -1,0 +1,56 @@
+{
+  "package": "YouTube_Creator_Data_Hub_V3.10.7_UI_Patch",
+  "version": "3.10.7",
+  "baseline": "3.10.6",
+  "type": "overlay_upgrade",
+  "upgrade_entrypoint": "upgrade.cmd",
+  "includes_root_readme": true,
+  "readme_version": "3.10.7",
+  "database_changes": false,
+  "schema_changes": false,
+  "visible_condition_target": 3,
+  "condition_row_height_px": 46,
+  "condition_viewport_height_px": 154,
+  "features": [
+    "Non-shrinking rule condition rows",
+    "Single ruleConditions vertical scroll viewport",
+    "No per-row horizontal scrollbars",
+    "Shared horizontal scroll only when necessary",
+    "No Rule Footer auto filler gap",
+    "Frozen shell measured from structured content",
+    "Rule list matches frozen shell height",
+    "README updated"
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "size": 12686,
+      "sha256": "c04272188d5db80862c485e3790baa53559b2dcdd6ecf2f8c38ebe3d0d6f0afd"
+    },
+    {
+      "path": "README_V3.10.7.txt",
+      "size": 929,
+      "sha256": "36b01205d7947d8a4bdcad33cdd6d2952d0019878c1e6669e3bcc846e598cdce"
+    },
+    {
+      "path": "VERSION",
+      "size": 7,
+      "sha256": "12c73c8cca31b2a6412b42f3c22556bac36d985d1dbbe8ef8e1ce257610a5bdc"
+    },
+    {
+      "path": "apply_v3_10_7.py",
+      "size": 3830,
+      "sha256": "824f740888790688cb6e7613ea575f2911fd57c0c8d40d54a8bd5f0331e419f7"
+    },
+    {
+      "path": "patches/v3_10_7_ui_patch.js",
+      "size": 27145,
+      "sha256": "1171cfb3c90e2a534f47c197f484832c80cdc5c6ed0794435c8c9655d60c4f73"
+    },
+    {
+      "path": "upgrade.cmd",
+      "size": 1008,
+      "sha256": "49e41045674cd6c9616e542200f72a2ec8b3f72e0003edcf083baa0b3d245fc0"
+    }
+  ]
+}
