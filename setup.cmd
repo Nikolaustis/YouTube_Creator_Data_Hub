@@ -59,7 +59,7 @@ echo =============================================
 echo Setup complete.
 echo =============================================
 echo Interactive mode: start-dashboard.cmd
- echo   Browser -^> http://.1:8765/ -^> local Python -^> local SQLite
+ echo   Browser -^> http://127.0.0.1:8765/ -^> local Python -^> local SQLite
  echo   Search, database writes, full filtering and XLSX export are enabled.
 echo Static mode: open-static-dashboard.cmd
  echo   Opens the generated HTML snapshot directly; no Python service is started.

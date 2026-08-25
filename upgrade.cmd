@@ -2,32 +2,35 @@
 setlocal
 cd /d "%~dp0"
 
-echo [1/5] Creating a consistent pre-upgrade SQLite backup when an existing database is present...
+echo [1/6] Creating a consistent pre-upgrade SQLite backup when an existing database is present...
 call "%~dp0scripts\python-run.cmd" "%~dp0scripts\pre_upgrade_backup.py"
 if errorlevel 1 goto :fail
 
-echo [2/5] Upgrading local SQLite schema and running registered migrations...
+echo [2/6] Applying V3.10.4 builder-height UI fix...
+call "%~dp0scripts\python-run.cmd" "%~dp0apply_v3_10_4.py"
+if errorlevel 1 goto :fail
+
+echo [3/6] Upgrading local SQLite schema...
 call "%~dp0scripts\python-run.cmd" "%~dp0hub.py" init
 if errorlevel 1 goto :fail
 
-echo [3/5] Running self-check...
+echo [4/6] Running self-check...
 call "%~dp0scripts\python-run.cmd" "%~dp0scripts\self_check.py"
 if errorlevel 1 goto :fail
 
-echo [4/5] Removing old Dashboard output...
+echo [5/6] Removing old Dashboard output...
 if exist "%~dp0output\dashboard" rmdir /s /q "%~dp0output\dashboard"
 
-echo [5/5] Rebuilding Dashboard...
+echo [6/6] Rebuilding Dashboard...
 call "%~dp0scripts\python-run.cmd" "%~dp0hub.py" dashboard
 if errorlevel 1 goto :fail
 
-echo Upgrade complete. Source version: 3.10.3. Existing data was migrated in place.
-echo A pre-upgrade backup is kept under backups when an existing database was found.
+echo Upgrade complete. V3.10.4 is ready.
+echo Existing SQLite data was preserved.
 echo Use start-dashboard.cmd for interactive mode.
 exit /b 0
 
 :fail
 echo Upgrade failed. Review the error above.
-echo If a pre-upgrade backup was created, keep it until the issue is resolved.
 pause
 exit /b 1

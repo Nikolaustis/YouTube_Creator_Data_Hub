@@ -55,7 +55,7 @@ def main():
 
     p=sub.add_parser("contact",help="scrape public contact links/email and stronger country evidence"); common(p); p.add_argument("ref")
 
-    p=sub.add_parser("serve",help="start the interactive Python Dashboard; no npm required"); common(p); p.add_argument("--output",default=str(DEFAULT_OUTPUT)); p.add_argument("--host",default=".1"); p.add_argument("--port",type=int,default=8765); p.add_argument("--no-browser",action="store_true")
+    p=sub.add_parser("serve",help="start the interactive Python Dashboard; no npm required"); common(p); p.add_argument("--output",default=str(DEFAULT_OUTPUT)); p.add_argument("--host",default="127.0.0.1"); p.add_argument("--port",type=int,default=8765); p.add_argument("--no-browser",action="store_true")
 
     p=sub.add_parser("add",help="resolve and add a creator to monitoring"); common(p)
     p.add_argument("ref"); p.add_argument("--priority",choices=["high","normal","low","archive"],default="normal"); p.add_argument("--full-history",action="store_true")
@@ -130,7 +130,7 @@ def main():
             import socket
             sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
             try:
-                sock.bind((".1",8765))
+                sock.bind(("127.0.0.1",8765))
             finally:
                 sock.close()
         except OSError as e:
@@ -143,7 +143,7 @@ def main():
                 except Exception as e:
                     online=False; online_error=f"{type(e).__name__}: {e}"
         h=make_hub(a); ai=h.ai_status()
-        dump({"python":sys.version.split()[0],"python_executable":sys.executable,"python_ok":py_ok,"python_required":">=3.10","pip_present":pip_ok,"openpyxl_present":ox_ok,"db":str(dbp.resolve()),"db_exists":dbp.exists(),"schema_version":schema,"data_dir_writable":data_write,"output_dir_writable":output_write,"api_key_env":key_env,"api_key_present":key_present,"api_key_online_valid":online,"api_key_online_error":online_error,"interactive_url":"http://.1:8765/","interactive_port":8765,"interactive_port_available":port_available,"interactive_port_error":port_error,"npm_required":False,"ai_optional":True,"ai":ai}); return
+        dump({"python":sys.version.split()[0],"python_executable":sys.executable,"python_ok":py_ok,"python_required":">=3.10","pip_present":pip_ok,"openpyxl_present":ox_ok,"db":str(dbp.resolve()),"db_exists":dbp.exists(),"schema_version":schema,"data_dir_writable":data_write,"output_dir_writable":output_write,"api_key_env":key_env,"api_key_present":key_present,"api_key_online_valid":online,"api_key_online_error":online_error,"interactive_url":"http://127.0.0.1:8765/","interactive_port":8765,"interactive_port_available":port_available,"interactive_port_error":port_error,"npm_required":False,"ai_optional":True,"ai":ai}); return
     hub=make_hub(a)
     if a.cmd=="discover":
         qs=[f"{a.query} {t}" for t in (a.expand_term or []) if str(t).strip()]
