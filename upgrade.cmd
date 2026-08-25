@@ -6,8 +6,8 @@ echo [1/6] Creating a consistent pre-upgrade SQLite backup when an existing data
 call "%~dp0scripts\python-run.cmd" "%~dp0scripts\pre_upgrade_backup.py"
 if errorlevel 1 goto :fail
 
-echo [2/6] Applying V3.10.4 builder-height UI fix...
-call "%~dp0scripts\python-run.cmd" "%~dp0apply_v3_10_4.py"
+echo [2/6] Applying V3.10.5 Rule Builder layout update...
+call "%~dp0scripts\python-run.cmd" "%~dp0apply_v3_10_5.py"
 if errorlevel 1 goto :fail
 
 echo [3/6] Upgrading local SQLite schema...
@@ -25,7 +25,7 @@ echo [6/6] Rebuilding Dashboard...
 call "%~dp0scripts\python-run.cmd" "%~dp0hub.py" dashboard
 if errorlevel 1 goto :fail
 
-echo Upgrade complete. V3.10.4 is ready.
+echo Upgrade complete. V3.10.5 is ready.
 echo Existing SQLite data was preserved.
 echo Use start-dashboard.cmd for interactive mode.
 exit /b 0
