@@ -138,7 +138,7 @@ def _innertube_context(cfg: dict[str, Any], language: str | None, region: str | 
     client = dict((cfg.get("INNERTUBE_CONTEXT") or {}).get("client") or {})
     # Keep only JSON-serializable public web client values; provide safe defaults if YouTube changes its page config.
     client.setdefault("clientName", "WEB")
-    client.setdefault("clientVersion", str(cfg.get("INNERTUBE_CLIENT_VERSION") or "2.20260801.00.00"))
+    client.setdefault("clientVersion", str(cfg.get("INNERTUBE_CLIENT_VERSION") or ".00"))
     if language:
         client["hl"] = language
     else:

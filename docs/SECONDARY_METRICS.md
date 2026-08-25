@@ -1,6 +1,19 @@
+
+## 三级 Field Taxonomy 与 Field Picker（）
+
+二次指标、博主库筛选/排序、规则构建和比值指标构建共享同一字段目录。每个字段使用稳定 ID，并携带分组、数据粒度、数据类型以及是否允许筛选/排序/比值引用等元数据。
+
+字段选择采用固定三级目录：
+
+1. 一级：客观数据 / 博主标签 / 构建指标 / 比值指标。
+2. 二级：客观数据按基础信息、地理位置、频道规模、内容与品牌、内容表现、商业数据、Discovery/AI、数据健康、视频客观数据组织；构建指标/比值指标直接读取用户在指标构建器中设置的分组，空分组统一显示“未分组”。
+3. 三级：具体稳定 Field ID。
+
+常规选择通过三级联动框完成；跨目录搜索、最近使用与收藏只是快捷入口。Saved View 保存稳定 Field ID，因此仅修改字段显示名称不会使既有视图失效。
+
 # 二次指标工作区 v1.0
 
-二次指标页面属于运营分析层，不改变 YouTube Fact Store。v1.0.0 的核心原则是：**先明确数据粒度，再做聚合。**
+二次指标页面属于运营分析层，不改变 YouTube Fact Store。 的核心原则是：**先明确数据粒度，再做聚合。**
 
 ## 1. 数据粒度
 
@@ -130,7 +143,7 @@ UgPhone视频数量 ÷ 本地已存视频数
 
 ## 7. v0.x 配置迁移
 
-v1.0.0 会尝试迁移旧浏览器配置：
+ 会尝试迁移旧浏览器配置：
 
 - `objective` 规则类型 → `creator_fact`
 - `aggregate_label` → `creator_label`
@@ -138,9 +151,9 @@ v1.0.0 会尝试迁移旧浏览器配置：
 - 把博主标签当作构建指标的错误配置会移除；引用它们的规则尽量改为直接引用对应博主标签
 - 旧“分子视频聚合 ÷ 分母视频聚合”比值会迁移为两个隐藏构建指标，再由比值指标引用
 
-因此 v1.0.0 的新建指标不会再混用 Creator 与 Video 粒度。
+因此  的新建指标不会再混用 Creator 与 Video 粒度。
 
-## v2.1.0 configuration persistence and dependency safety
+##  configuration persistence and dependency safety
 
 In interactive mode, the complete Secondary Metrics workspace (constructed metrics, ratio metrics, rules and saved result filters) is stored in SQLite `app_settings.secondary_metrics`. Existing browser workspaces are migrated only when SQLite does not yet contain a saved configuration. Static read-only mode can still use the browser-local fallback.
 

@@ -1,47 +1,53 @@
 {
   "name": "youtube-creator-data-hub",
-  "version": "3.9.0",
-  "type": "cover-package",
+  "version": "3.10.3",
+  "type": "full-source-release",
   "database_included": false,
+  "secrets_included": false,
+  "schema_version": 17,
   "upgrade_compatible": true,
-  "schema_version": 15,
-  "metric_schema": "creator-video-grain-v1",
+  "validation": "scripts/self_check.py passed before packaging",
   "release_focus": [
-    "conclusion-first-tables-no-horizontal-scroll",
-    "dynamic-column-budget-for-filter-sort-explainability",
-    "identity-tags-one-per-line-centered",
-    "creator-library-10-column-core-view",
-    "discovery-process-metadata-moved-to-inspector",
-    "discovery-action-dropdown-grouping",
-    "video-title-wrap-and-row-review-menu",
-    "creator-video-entity-links-preserved",
-    "schema-15-no-new-migration"
+    "three-level-field-taxonomy",
+    "unified-one-row-condition-selector-all-surfaces",
+    "saved-metrics-rules-10-per-page-internal-scroll",
+    "persistent-job-engine",
+    "migration-runner",
+    "api-v1",
+    "frozen-run-specification",
+    "fact-derived-ai-human-effective-contract",
+    "creator-intelligence-engine"
   ],
   "files": [
     {
       "path": ".gitignore",
-      "size_bytes": 228,
-      "sha256": "184e4b3d28331535ae27d1cbea429a112addc87870a683e3d58c1d6e4a4d4ab0"
+      "size_bytes": 497,
+      "sha256": "3e6da4b3e8b5b7476a3ad24a51ebc7cef9859e898be073d23f35a80e17f4e099"
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 35524,
-      "sha256": "1cbe6a38f437659b28c82436fc4dc6c587d60b0b31b74ccd6af0753edead988a"
+      "size_bytes": 619,
+      "sha256": "eb77c86c4d7405011aa97e5215c1dc4c4d2e6b3ee949928d351d6e03c44e48ad"
+    },
+    {
+      "path": "GITHUB_UPLOAD.md",
+      "size_bytes": 657,
+      "sha256": "0426993b12ce98331ce29bfab2efff45681a3fe8e1b979fbcaf926937a086261"
     },
     {
       "path": "README.md",
-      "size_bytes": 37048,
-      "sha256": "eef1152ce620fefc5a011ad176cb218d115640c4e8d13634d5f2c3b320274ba2"
+      "size_bytes": 2585,
+      "sha256": "e3876f8b868d6e3a61c1df61abda1b713fb7288688757115069bbfb8c4e5c75f"
     },
     {
       "path": "SKILL.md",
-      "size_bytes": 27370,
-      "sha256": "cd4bbcd61f1d0dca4f780f487773a606c2ff365c6035e7d1197201b7278c2b55"
+      "size_bytes": 9743,
+      "sha256": "1ba511ea64fc836d04edfe3e0b19984a8cc37f83c7eab182fdef72866d52b96b"
     },
     {
       "path": "VERSION",
-      "size_bytes": 6,
-      "sha256": "5c0f9e710d6f59bb59980444f3dc58886fc564a0a2d8a1d534d3296be2c67da8"
+      "size_bytes": 7,
+      "sha256": "f87966285da0832df96612532e25b6dc834ae86a4b3aa7b82941f65b0a1a6f58"
     },
     {
       "path": "agents/openai.yaml",
@@ -50,8 +56,8 @@
     },
     {
       "path": "config/brands.json",
-      "size_bytes": 3976,
-      "sha256": "09fbe988f3d6d8c24ffd6ffbc7e2f5691175c4703653fe6b393e8972779153b8"
+      "size_bytes": 3971,
+      "sha256": "7f3aa6dcd17a423d8d82aa2b5cec6fa59ff1d3e86fd455652eb5dde95cc7339b"
     },
     {
       "path": "config/geography.json",
@@ -65,13 +71,13 @@
     },
     {
       "path": "config/settings.json",
-      "size_bytes": 1442,
-      "sha256": "8b1e72f7b2ea34af2c7b008a06692637b9cbcf37e6abb6ec69ccd1b2014a4964"
+      "size_bytes": 1443,
+      "sha256": "1c59ae0fa838869946e04caddce0b75744194dc754207058a1c290c692906ba3"
     },
     {
       "path": "creator_hub/__init__.py",
-      "size_bytes": 22,
-      "sha256": "c9adc0be6f6a1f37ad220640a5233a7878f23b52983aa6d17f9c634a66c8a9d8"
+      "size_bytes": 23,
+      "sha256": "acf00f7a0254d8d7091139933b4a87928e417d8bfb6806dc998ab45f66811b68"
     },
     {
       "path": "creator_hub/ai/__init__.py",
@@ -80,28 +86,28 @@
     },
     {
       "path": "creator_hub/ai/local_tools.py",
-      "size_bytes": 12383,
-      "sha256": "35def8ebee342dff145c62285f4c159b914cb2c74d674298266e9e59b931982f"
+      "size_bytes": 11380,
+      "sha256": "27c8e0a2e73586af05a146b6881229c88faf602a7241b6cdaabacff167eaa415"
     },
     {
       "path": "creator_hub/ai/prompts.py",
-      "size_bytes": 5040,
-      "sha256": "30b3a2a75d737325a211dc723db40639b5843ab526d5b262412b2f46058936d3"
+      "size_bytes": 5600,
+      "sha256": "db7924713d1f2f0bd5248e004b4492841c1c7a7489c33761e608b77b9826a4ba"
     },
     {
       "path": "creator_hub/ai/provider.py",
-      "size_bytes": 20140,
-      "sha256": "0f3919454d14fb176be05a8b6fe2b2e908153d56442ea847405fa66dcbd6aa2a"
+      "size_bytes": 20147,
+      "sha256": "29e0cadbd0738f6ee3fa0bf97eb15529cc8be18d7d38dabf76422cb41f2e0599"
     },
     {
       "path": "creator_hub/ai/service.py",
-      "size_bytes": 60928,
-      "sha256": "06f183ae1722092e8e4092fc4911030ac171c0c3a11bc082c8e6d2d7814a2524"
+      "size_bytes": 75711,
+      "sha256": "5c10844866a1de25ff266e8081f7fb6d3ee40ad64e46977906cfce0e7080708a"
     },
     {
       "path": "creator_hub/classifier.py",
-      "size_bytes": 6899,
-      "sha256": "731d18a76f73f16475b70ab2d3ed612c0be14d7e6d0bb8cb25e14e4e1f25d8da"
+      "size_bytes": 6894,
+      "sha256": "9f879bc4e0525b90bcb6b55b3ac84cccbe6a58350e5a31f67ccd4ce84a84834d"
     },
     {
       "path": "creator_hub/config.py",
@@ -120,18 +126,28 @@
     },
     {
       "path": "creator_hub/dashboard.py",
-      "size_bytes": 107929,
-      "sha256": "b8d8a61b7bea692f2d68a5801a4ddc064cc14b9bef3c9263dc4706c790183393"
+      "size_bytes": 116862,
+      "sha256": "0686ef2bfeb0af666daa0741b11aa85f5398a794464a83edc3ff1254a0361988"
     },
     {
       "path": "creator_hub/db.py",
-      "size_bytes": 31039,
-      "sha256": "fdf72ab1f64283082d8caf48c3258934f8c12af7600e8a51651b587c4e744f93"
+      "size_bytes": 33936,
+      "sha256": "a86d90b04aabedc03b5082f54aeb1ef291c28d9776295a92a6d6d425bc5121ea"
     },
     {
       "path": "creator_hub/exporter.py",
       "size_bytes": 8332,
       "sha256": "1bc94407f682cbe48886cd1effa5360afcd4e40a757ebe816c5813aaf99ebf3c"
+    },
+    {
+      "path": "creator_hub/field_registry.py",
+      "size_bytes": 4772,
+      "sha256": "6d3c3d9365eb0a61068d4afc9e026967f9393abc91ab877870881964f8077f25"
+    },
+    {
+      "path": "creator_hub/fx.py",
+      "size_bytes": 407,
+      "sha256": "1c0e712caaf1de15f3b55390bcf3c69a624f8ed173a72bb1ce018848eeb1099a"
     },
     {
       "path": "creator_hub/geography.py",
@@ -140,13 +156,13 @@
     },
     {
       "path": "creator_hub/importers.py",
-      "size_bytes": 18801,
-      "sha256": "b8f084425fbf00edef41d9d0ab10e673f4dfd0cb7fd9734803e787beda3ea4ed"
+      "size_bytes": 21721,
+      "sha256": "f1f6621fe3805b336ebde2e58c499ac16571d82f4fe0ee1974ecf8e7050ff74a"
     },
     {
       "path": "creator_hub/jobs.py",
-      "size_bytes": 8778,
-      "sha256": "7ee2958764994cd263dd9949bf7e250c9d2b2d7fc42cfaaec69293562f8d6acc"
+      "size_bytes": 13315,
+      "sha256": "18d450b361d75149a6cd7efc9f943f73fe97b2a11bcdfba47ebe1f2cd4ac6801"
     },
     {
       "path": "creator_hub/metric_config.py",
@@ -155,8 +171,13 @@
     },
     {
       "path": "creator_hub/metric_workspace.py",
-      "size_bytes": 17443,
-      "sha256": "3c3256cbb9860261afae752b33623fdf99ac477f6fe4989ebb3d09affad6e19f"
+      "size_bytes": 21819,
+      "sha256": "37bb6748acbefca8dbc79c9dd586d673d19f392cb67a6c0fc1f9fa83095332c6"
+    },
+    {
+      "path": "creator_hub/migrations.py",
+      "size_bytes": 4507,
+      "sha256": "07740b4d3cc0fea53a36646ddec2ceb34f27f9b4f1b70eba00aec6372cd9b611"
     },
     {
       "path": "creator_hub/monitoring.py",
@@ -170,23 +191,43 @@
     },
     {
       "path": "creator_hub/server.py",
-      "size_bytes": 40839,
-      "sha256": "7a1bfe746681163855aac702be3df155416261646d7e700d8609839e8017bf66"
+      "size_bytes": 48636,
+      "sha256": "564a04d2afa1e1eb41fe3eab0d034f05c454c69954ee2dd840838f0e9fac4b4f"
     },
     {
       "path": "creator_hub/service.py",
-      "size_bytes": 148088,
-      "sha256": "0b9d59f8bc28d9e42e6aba57567f5014922b81784b85ffabf72c7da11c78bdf3"
+      "size_bytes": 153294,
+      "sha256": "aba3cb1735fffae8d6ca00b9a74ab61a37a778c0d0968a9c21d587706f97d481"
+    },
+    {
+      "path": "creator_hub/services/__init__.py",
+      "size_bytes": 186,
+      "sha256": "85a260be9446ffb77c4cc2c98f7a8af59c57b0c9ddf510fee8e12df335c855e2"
+    },
+    {
+      "path": "creator_hub/services/contracts.py",
+      "size_bytes": 2874,
+      "sha256": "f389ff9fc633aea885446563067757b9ddc864adc66971007786a2e51754046c"
+    },
+    {
+      "path": "creator_hub/services/intelligence.py",
+      "size_bytes": 8468,
+      "sha256": "a470ed7478434d45350ff1c746ec4e354d06878003150dc97c8a3f3510c4e7f1"
+    },
+    {
+      "path": "creator_hub/services/runs.py",
+      "size_bytes": 3974,
+      "sha256": "76c6e7c21fb85ceb33cfec27b38ac5f57fc8e3bf5fd85b304d65929323d9eee8"
     },
     {
       "path": "creator_hub/static/ai_copilot.js",
-      "size_bytes": 35901,
-      "sha256": "9cca1b8810ed185877148c051ce29a15e83cad3a04eed1562ac360893c451abc"
+      "size_bytes": 40791,
+      "sha256": "3aad3996a48ddc187ff1a0a645582ecddb6f01d58526a187a5f07af443be5e64"
     },
     {
       "path": "creator_hub/static/business_metrics.js",
-      "size_bytes": 1185,
-      "sha256": "33df085789ef31e25a552babf3da118b7c57290e2a8137ba148450a795eca16a"
+      "size_bytes": 1427,
+      "sha256": "e575a2ba2990f01d03258af8c140aa6cce6d533e600224a8da6bd21295d6fd9d"
     },
     {
       "path": "creator_hub/static/creator_detail.js",
@@ -200,43 +241,48 @@
     },
     {
       "path": "creator_hub/static/export_tools.js",
-      "size_bytes": 1285,
-      "sha256": "3c0101300f9b8b7cdd2fa4ab645335e783a3225915acafaa22ff3a59e0f3b7ab"
+      "size_bytes": 1278,
+      "sha256": "d093340a8bb13da620eef757eb57f7701528b065c924a769b06cb08111f0b14f"
+    },
+    {
+      "path": "creator_hub/static/field_registry.js",
+      "size_bytes": 10968,
+      "sha256": "ba327b491fc0b191a1e1dea7e7c0478698c2c66e63d2f3a13ea62a71446bf2d9"
     },
     {
       "path": "creator_hub/static/job_progress.js",
-      "size_bytes": 5454,
-      "sha256": "dadd31a73ce113453048c110262cbfbddca0afa9720a611b1da3a90d273206ae"
+      "size_bytes": 7008,
+      "sha256": "9ad08db741b117476f2d9f0e618d258f66510a0ae908510d6a8dfd93bcfcf54d"
     },
     {
       "path": "creator_hub/static/maintenance.js",
-      "size_bytes": 15702,
-      "sha256": "c1a6d1cb1d86dd0ad34092d52f88aa8f5fbd496dc7986928bb6fee6047757414"
+      "size_bytes": 18676,
+      "sha256": "eedced27e834b54954af523cc19dabf864b64861e2848fa67e890dc7c40607f8"
     },
     {
       "path": "creator_hub/static/metrics_workspace.js",
-      "size_bytes": 51664,
-      "sha256": "6a3c896734433eb7d0e73e732ff8b33e883356e02f8b43a3bb31584c9e520d54"
+      "size_bytes": 76883,
+      "sha256": "ad41107e317418c4a8067956535162b867188397c303a4407fea914c398273c1"
     },
     {
       "path": "creator_hub/static/overview_filters.js",
-      "size_bytes": 21929,
-      "sha256": "83735f14465b876c6eb0e01e073ba6b8cc02cb278588b4d246f73d2d31e14a75"
+      "size_bytes": 41077,
+      "sha256": "dc592948990db02275414750314b846fd3d41721b29c4bb228350307bb2bd66f"
     },
     {
       "path": "creator_hub/static/product_ui.js",
-      "size_bytes": 4109,
-      "sha256": "51806e0c341f51ba1b45a0593af6488d8893b4cbd728d84e94e89a6a9eaaa4f0"
+      "size_bytes": 4177,
+      "sha256": "7f2c0111e75c73e22b0ccf2e528ec236de99a1ea28cd176fd61141cebccb5052"
     },
     {
       "path": "creator_hub/static/review.js",
-      "size_bytes": 23485,
-      "sha256": "2849dff5c15ad928641b1d77601823b2eb623ee23293bd3e9381862ec40c8ffe"
+      "size_bytes": 23455,
+      "sha256": "e11a5ce203fbd6f99ba45b13f09d1af872dd6571bbf4c75ed42152922c294dad"
     },
     {
       "path": "creator_hub/static/runtime_status.js",
-      "size_bytes": 978,
-      "sha256": "a10aea854c90fe37cd12e92ba49f952d8d98b1724abca3db7bf2cc0f71186ca8"
+      "size_bytes": 971,
+      "sha256": "cc91fa739589f764d2cae6198e16f65d41d23adcd5f37d92aebd894486db67dc"
     },
     {
       "path": "creator_hub/static/saved_views.js",
@@ -260,23 +306,33 @@
     },
     {
       "path": "creator_hub/web_search.py",
-      "size_bytes": 7892,
-      "sha256": "24f21c0600beaa434e85f6040607e810708f42c2e5b446d68c5d32d25b9f3149"
+      "size_bytes": 7879,
+      "sha256": "15755c4a129875ea0c0f0dc1f66d5fbe1824b86891ca8a481fafb2961d1f53cf"
     },
     {
       "path": "creator_hub/youtube_api.py",
-      "size_bytes": 5271,
-      "sha256": "cd868bb067c722b54995b54e482eea6fcb07f18cf09c9b1a0e89c060c5ac70d7"
+      "size_bytes": 5272,
+      "sha256": "a941a717ac64e39fadd33344ced9cd385f1d9c1f4d7026eef37b68c701561832"
+    },
+    {
+      "path": "data/.gitkeep",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "path": "docs/AI.md",
-      "size_bytes": 8585,
-      "sha256": "3817243084b349786c67f6cc6ab223b29399d46d29d29236864121182fe02cff"
+      "size_bytes": 9946,
+      "sha256": "a18333579bc6cda65c614cbdeae0ac23514d56a1d90634f3048a4c8b2c144180"
+    },
+    {
+      "path": "docs/API_V1.md",
+      "size_bytes": 1126,
+      "sha256": "ba439fb75babf41b56a9d5706d8ed052e3629c86d6c29b3c04c8b11741f7f558"
     },
     {
       "path": "docs/ARCHITECTURE.md",
-      "size_bytes": 4083,
-      "sha256": "afa45f57f98ca119f4c692b614f7da2f5b3f86aee509906aca950126139b7e0d"
+      "size_bytes": 7074,
+      "sha256": "fa2daabe28422e339c45899ba52c2633597ac10a4bff31b2b9f5f3e6a47db196"
     },
     {
       "path": "docs/CODEX_EXAMPLES.md",
@@ -284,9 +340,14 @@
       "sha256": "11689e77977fbf122836f72ae120f3006682c4841c0df365d0e3bb17820ab8ab"
     },
     {
+      "path": "docs/DATA_CONTRACT.md",
+      "size_bytes": 747,
+      "sha256": "d0faec3945c83bf08bda6497b237922dfa03c7c3e035c5d4476ef0f98bba4587"
+    },
+    {
       "path": "docs/DATA_DICTIONARY.md",
-      "size_bytes": 5375,
-      "sha256": "911dc67ae12721164085c137f8519466d196d3a4d3c169eb12d5054628120e3b"
+      "size_bytes": 6747,
+      "sha256": "aabe8a946d7318bfeaf44ecc69b34388f50a2a4f0b983a66d472df33cab797f6"
     },
     {
       "path": "docs/DISCOVERY_SCORING.md",
@@ -295,33 +356,48 @@
     },
     {
       "path": "docs/INSTALLATION.md",
-      "size_bytes": 4004,
-      "sha256": "9578ed4cb29d913b91510a6936d7f69dca7c863182aca97582a5cfb58b3b56a2"
+      "size_bytes": 3991,
+      "sha256": "dd5a418b084b446f3a01b692aced9c631468afed290bf634f48dc9b2d1d567f1"
+    },
+    {
+      "path": "docs/MIGRATIONS.md",
+      "size_bytes": 651,
+      "sha256": "0abfe8f6b8bc46156c5f02f3beadd57ca7d02f97a66153add3313f53264c8fdc"
     },
     {
       "path": "docs/OPERATIONS.md",
-      "size_bytes": 6872,
-      "sha256": "8b1fa67834f21af1c35ba0557d1ce6a3cae84d3f326587117c8277b2f0d11eb0"
+      "size_bytes": 7284,
+      "sha256": "9c572335be3e93dea4a0c4767fb37435209f5ab58743c34f709fc6af237a18a2"
     },
     {
       "path": "docs/QUERY_EXPANSION.md",
-      "size_bytes": 2311,
-      "sha256": "8b8132329dc2a895de30078dd42edccf7c676e2f67ae93ae70f7c081b6968cbe"
+      "size_bytes": 2305,
+      "sha256": "454c98f1af1692f2045aec83a9670ffe56750f9c8b24c624ec7efbd1d2d081c4"
     },
     {
       "path": "docs/SECONDARY_METRICS.md",
-      "size_bytes": 4402,
-      "sha256": "20d8f62b6bc7d0c7d7856a4a84d8aa102d1f219e1fc3f39079a958fa25d066c6"
+      "size_bytes": 5317,
+      "sha256": "4670231d509e3221e70cf3db6b98aa60ad50e4340700c8433d42ea3e2b28db7a"
+    },
+    {
+      "path": "exports/.gitkeep",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "path": "hub.py",
-      "size_bytes": 18461,
-      "sha256": "4066f7ee6536401301527bff1118722b9745b4ca7799a6c756523e7f6860a400"
+      "size_bytes": 18606,
+      "sha256": "0a689a40f6d990b2269099bd3550f026aaa179c3e69670d7229c734570fdb176"
     },
     {
       "path": "open-static-dashboard.cmd",
       "size_bytes": 268,
       "sha256": "089c315913f3c02c1c4addc045c131aa8e86b0ef0398297f555c581ec54c524d"
+    },
+    {
+      "path": "output/.gitkeep",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "path": "requirements.txt",
@@ -390,8 +466,8 @@
     },
     {
       "path": "scripts/self_check.py",
-      "size_bytes": 65054,
-      "sha256": "6f0b7d11fcb966675a0dd4442cc83b822ad826dee39cc118bf9c6fc333c27b42"
+      "size_bytes": 77571,
+      "sha256": "ad11dffdb6ded5bdc48cc73fab507fa766799d06834145444f75eb1556900bc6"
     },
     {
       "path": "scripts/set-ai-key.cmd",
@@ -414,14 +490,19 @@
       "sha256": "771b0327f7a4a4569e0d6bb25f708979594c3488acbcca69ab4c7385e655e826"
     },
     {
+      "path": "scripts/visual_regression.py",
+      "size_bytes": 7758,
+      "sha256": "804782df55a61fec0a1dccb1c40680c07c179242be34df135592d5b03371af40"
+    },
+    {
       "path": "setup-ai.cmd",
       "size_bytes": 114,
       "sha256": "89f4b93a1f4d4a692a042a7976c86099bcfc3b45fad737c69b796c478e2cdd8a"
     },
     {
       "path": "setup.cmd",
-      "size_bytes": 3946,
-      "sha256": "1ce5f8496c30a3696b667bf68dc7ccf0866e46ea1cffc243a2050d65c56f83ef"
+      "size_bytes": 3939,
+      "sha256": "2c4e6e01b94b9fe689b1f270b61985e22dab207e3bc0d4952abc7988f47e678d"
     },
     {
       "path": "start-dashboard.cmd",
@@ -430,8 +511,8 @@
     },
     {
       "path": "upgrade.cmd",
-      "size_bytes": 1106,
-      "sha256": "c61acd347c1149d8c9e6944dac14d236b18962668d83caad08d990c285519ed6"
+      "size_bytes": 1164,
+      "sha256": "0acb68a3dac9eb853a22d283f3770222aaf166aeb810c5296a1a8476ac72ad8d"
     }
   ]
 }

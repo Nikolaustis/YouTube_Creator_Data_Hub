@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 17
 LEGACY_DISCOVERY_INFERENCE_VERSION = 2
 DISCOVERY_SUMMARY_VERSION = 1
 
@@ -20,6 +20,27 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_specs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, spec_type TEXT NOT NULL, title TEXT NOT NULL, spec_version INTEGER NOT NULL DEFAULT 1,
+  spec_json TEXT NOT NULL, fingerprint TEXT NOT NULL, source_ai_run_id INTEGER, source_result_set_id INTEGER, parent_spec_id INTEGER, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_run_specs_type_time ON run_specs(spec_type,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS data_assertions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, field_id TEXT NOT NULL,
+  layer TEXT NOT NULL CHECK(layer IN ('fact','derived','ai','human')), value_json TEXT NOT NULL, confidence REAL, source_ref TEXT,
+  rule_version TEXT, observed_at TEXT, created_at TEXT NOT NULL, supersedes_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_data_assertions_entity_field ON data_assertions(entity_type,entity_id,field_id,created_at DESC);
 
 CREATE TABLE IF NOT EXISTS creators (
   channel_id TEXT PRIMARY KEY,
@@ -355,6 +376,7 @@ CREATE TABLE IF NOT EXISTS ai_result_sets (
   plan_json TEXT NOT NULL DEFAULT '{}',
   metadata_json TEXT NOT NULL DEFAULT '{}',
   discovery_run_id TEXT,
+  run_spec_id INTEGER,
   total_items INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   FOREIGN KEY(ai_run_id) REFERENCES ai_runs(id) ON DELETE SET NULL,
@@ -468,6 +490,12 @@ CREATE TABLE IF NOT EXISTS creator_business_metrics (
   metric_key TEXT NOT NULL,
   metric_value REAL NOT NULL,
   currency TEXT,
+  metric_value_usd REAL,
+  fx_rate_to_usd REAL,
+  fx_rate_date TEXT,
+  fx_provider TEXT,
+  fx_status TEXT NOT NULL DEFAULT 'not_applicable',
+  snapshot_kind TEXT NOT NULL DEFAULT 'point_in_time_total',
   period_start TEXT NOT NULL DEFAULT '',
   period_end TEXT NOT NULL DEFAULT '',
   campaign TEXT NOT NULL DEFAULT '',
@@ -511,7 +539,15 @@ CREATE TABLE IF NOT EXISTS job_runs (
   finished_at TEXT,
   elapsed_seconds REAL NOT NULL DEFAULT 0,
   result_json TEXT NOT NULL DEFAULT '{}',
-  error TEXT
+  error TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  resource_class TEXT NOT NULL DEFAULT 'local',
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  checkpoint_json TEXT NOT NULL DEFAULT '{}',
+  resumable INTEGER NOT NULL DEFAULT 0,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  parent_job_id TEXT,
+  worker_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_job_runs_updated ON job_runs(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_job_runs_state ON job_runs(state,updated_at DESC);
@@ -571,6 +607,15 @@ CREATOR_COLUMNS = {
     "availability_failures": "INTEGER NOT NULL DEFAULT 0",
 }
 
+
+BUSINESS_METRIC_COLUMNS = {
+    "metric_value_usd": "REAL",
+    "fx_rate_to_usd": "REAL",
+    "fx_rate_date": "TEXT",
+    "fx_provider": "TEXT",
+    "fx_status": "TEXT NOT NULL DEFAULT 'not_applicable'",
+    "snapshot_kind": "TEXT NOT NULL DEFAULT 'point_in_time_total'",
+}
 
 AI_RUN_COLUMNS = {
     "source_json": "TEXT NOT NULL DEFAULT '{}'",
@@ -787,13 +832,24 @@ def _rebuild_discovery_summary(conn: sqlite3.Connection) -> None:
                             VALUES(?,?,?,?,?,?,?,?)""",payload)
     conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('discovery_summary_version',?)",(str(DISCOVERY_SUMMARY_VERSION),))
 
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return bool(conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone())
+
 def init_db(db_path: str | Path) -> None:
+    from .migrations import run_migrations
     with connect(db_path) as conn:
+        before=conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() if _table_exists(conn,'meta') else None
+        old_version=int(before[0]) if before and str(before[0]).isdigit() else 0
         conn.executescript(SCHEMA_SQL)
         _ensure_columns(conn, "creators", CREATOR_COLUMNS)
         _ensure_columns(conn, "discovery_hits", DISCOVERY_COLUMNS)
         _ensure_columns(conn, "discovery_runs", DISCOVERY_RUN_COLUMNS)
         _ensure_columns(conn, "ai_runs", AI_RUN_COLUMNS)
+        _ensure_columns(conn, "creator_business_metrics", BUSINESS_METRIC_COLUMNS)
+        run_migrations(conn, old_version, SCHEMA_VERSION)
+        #  business rule: UgPhone backend GMV is already a USD cumulative snapshot.
+        # Backfill every historical GMV row so legacy FX/pending states disappear without re-import.
+        conn.execute("UPDATE creator_business_metrics SET currency='USD',metric_value_usd=metric_value,fx_rate_to_usd=1.0,fx_rate_date=substr(captured_at,1,10),fx_provider='ugphone_backend_usd',fx_status='native_usd' WHERE metric_key='gmv'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_discovery_run ON discovery_hits(run_id)")
         _rebuild_legacy_discovery(conn)
         _rebuild_discovery_summary(conn)

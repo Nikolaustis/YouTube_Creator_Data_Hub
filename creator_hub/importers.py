@@ -3,10 +3,32 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
 
 from .db import connect, json_dump
 from .service import CreatorHub
 from .util import now_utc, parse_duration_seconds
+
+
+def _normalize_capture_time(value: Any, fallback: str) -> str:
+    """Normalize a business snapshot timestamp without any currency/FX semantics."""
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    if hasattr(value, "isoformat"):
+        try: text = value.isoformat()
+        except Exception: pass
+    text = text.replace("/", "-")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return text + "T00:00:00Z"
+    if text.endswith("Z"):
+        return text
+    try:
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return fallback
 
 
 def _read_jsonl(path: Path):
@@ -143,6 +165,7 @@ _CURRENCY={"currency","币种","货币"}
 _CAMPAIGN={"campaign","campaign_name","活动","活动名称","项目","项目名称"}
 _REGION={"region","country","国家","地区","市场"}
 _NOTE={"note","备注","说明"}
+_CAPTURED_AT={"captured_at","capture_time","snapshot_at","snapshot_time","data_at","as_of","采集时间","数据采集时间","数据时间","快照时间","统计时间","截至时间","截止时间"}
 
 
 def _norm_header(value: Any) -> str:
@@ -253,7 +276,7 @@ def _resolve_business_creator(row: list[Any], headers: list[str], indexes, cols)
     return None,"unmatched"
 
 
-def import_business_metrics(hub: CreatorHub, source: str|Path, *, source_type: str="manual_import", progress=None) -> dict[str,Any]:
+def import_business_metrics(hub: CreatorHub, source: str|Path, *, source_type: str="manual_import", capture_at: str | None = None, progress=None) -> dict[str,Any]:
     """Import creator-grain commercial facts without coupling them to the creators table.
 
     CSV/XLSX files are accepted. A sheet is considered relevant only when it contains at
@@ -269,7 +292,8 @@ def import_business_metrics(hub: CreatorHub, source: str|Path, *, source_type: s
     elif source.is_file(): files=[source]
     else: raise FileNotFoundError(str(source))
     batch="biz-"+uuid.uuid4().hex[:12]
-    imported=updated=skipped=matched_rows=0; touched=set(); notes=[]; relevant_files=0
+    batch_captured_at=_normalize_capture_time(capture_at,now_utc())
+    imported=updated=skipped=matched_rows=0; touched=set(); notes=[]; relevant_files=0; gmv_usd_rows=0
     total=max(1,len(files))
     with connect(hub.db_path) as conn:
         indexes=_creator_match_indexes(conn)
@@ -295,6 +319,7 @@ def import_business_metrics(hub: CreatorHub, source: str|Path, *, source_type: s
                 extra={
                     "start":_first_col(headers,_PERIOD_START),"end":_first_col(headers,_PERIOD_END),"currency":_first_col(headers,_CURRENCY),
                     "campaign":_first_col(headers,_CAMPAIGN),"region":_first_col(headers,_REGION),"note":_first_col(headers,_NOTE),
+                    "captured_at":_first_col(headers,_CAPTURED_AT),
                 }
                 for ri,row in enumerate(rows[header_i+1:],header_i+2):
                     cid,matched_by=_resolve_business_creator(list(row),headers,indexes,cols)
@@ -308,27 +333,42 @@ def import_business_metrics(hub: CreatorHub, source: str|Path, *, source_type: s
                     matched_rows+=1;touched.add(cid)
                     def at(i): return _text(row[i]) if i is not None and i<len(row) else ""
                     common=(at(extra["currency"]),at(extra["start"]),at(extra["end"]),at(extra["campaign"]),at(extra["region"]),at(extra["note"]))
+                    row_captured_at=_normalize_capture_time(at(extra["captured_at"]),batch_captured_at)
                     for idx,key,val in values:
-                        currency=common[0]
-                        if not currency and key in {"gmv","revenue","commission","cost"}:
-                            hn=_norm_header(headers[idx])
-                            if "usd" in hn or "$" in headers[idx]: currency="USD"
-                            elif "cny" in hn or "rmb" in hn or "¥" in headers[idx] or "￥" in headers[idx]: currency="CNY"
+                        monetary=key in {"gmv","revenue","commission","cost"}
+                        # UgPhone backend GMV is a USD cumulative snapshot.   deliberately
+                        # does not infer/convert currencies for GMV, even when a legacy workbook
+                        # happens to contain a currency or FX column.
+                        if key == "gmv":
+                            currency="USD"; usd_value=float(val); fx_rate=1.0
+                            fx_date=str(row_captured_at or "")[:10]; fx_provider="ugphone_backend_usd"; fx_status="native_usd"
+                            gmv_usd_rows += 1
+                        elif monetary:
+                            raw_cur=str(common[0] or "").strip().upper()
+                            currency=raw_cur or ""
+                            native_usd=(currency=="USD")
+                            usd_value=float(val) if native_usd else None
+                            fx_rate=1.0 if native_usd else None
+                            fx_date=str(row_captured_at or "")[:10] if native_usd else ""
+                            fx_provider="native_usd" if native_usd else ""
+                            fx_status="native_usd" if native_usd else "not_standardized"
+                        else:
+                            currency=str(common[0] or "").strip(); usd_value=None; fx_rate=None; fx_date=""; fx_provider=""; fx_status="not_applicable"
                         try: stable_file=str(path.relative_to(source)) if source_is_dir else path.name
                         except Exception: stable_file=path.name
-                        source_ref=f"{stable_file}::{sheet}::{ri}::{headers[idx]}"
+                        # captured_at is part of the source identity so a newer backend export becomes
+                        # a new point-in-time snapshot instead of overwriting the previous total.
+                        source_ref=f"{stable_file}::{sheet}::{ri}::{headers[idx]}::snapshot={row_captured_at}"
                         raw={headers[i]:_text(row[i]) for i in range(min(len(headers),len(row))) if headers[i]}
-                        before=conn.total_changes
-                        conn.execute("""INSERT INTO creator_business_metrics(channel_id,metric_key,metric_value,currency,period_start,period_end,campaign,region,source_type,source_ref,import_batch,captured_at,note,raw_json)
-                                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        conn.execute("""INSERT INTO creator_business_metrics(channel_id,metric_key,metric_value,currency,metric_value_usd,fx_rate_to_usd,fx_rate_date,fx_provider,fx_status,snapshot_kind,period_start,period_end,campaign,region,source_type,source_ref,import_batch,captured_at,note,raw_json)
+                                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                                       ON CONFLICT(channel_id,metric_key,period_start,period_end,campaign,region,source_type,source_ref)
-                                      DO UPDATE SET metric_value=excluded.metric_value,currency=excluded.currency,import_batch=excluded.import_batch,captured_at=excluded.captured_at,note=excluded.note,raw_json=excluded.raw_json""",
-                                     (cid,key,float(val),currency,common[1],common[2],common[3],common[4],source_type,source_ref,batch,now_utc(),common[5],json_dump({"matched_by":matched_by,"row":raw})))
-                        # SQLite total_changes increments for both insert and update; expose as imported/upserted.
+                                      DO UPDATE SET metric_value=excluded.metric_value,currency=excluded.currency,metric_value_usd=excluded.metric_value_usd,fx_rate_to_usd=excluded.fx_rate_to_usd,fx_rate_date=excluded.fx_rate_date,fx_provider=excluded.fx_provider,fx_status=excluded.fx_status,snapshot_kind=excluded.snapshot_kind,import_batch=excluded.import_batch,captured_at=excluded.captured_at,note=excluded.note,raw_json=excluded.raw_json""",
+                                     (cid,key,float(val),currency,usd_value,fx_rate,fx_date,fx_provider,fx_status,"point_in_time_total",common[1],common[2],common[3],common[4],source_type,source_ref,batch,row_captured_at,common[5],json_dump({"matched_by":matched_by,"row":raw,"gmv_currency_semantics":"USD" if key=="gmv" else "source"})))
                         imported+=1
             if file_relevant: relevant_files+=1
             if progress: progress(stage="商业数据导入",message=f"已扫描 {fi}/{total} 个文件 · 已写入 {imported} 个指标值",current=fi,total=total,percent=round(fi*100/total,1))
         conn.execute("INSERT INTO imports(source_type,source_path,imported_at,creators,videos,snapshots,message) VALUES(?,?,?,?,?,?,?)",
-                     ("creator-business-metrics",str(source.resolve()),now_utc(),len(touched),0,0,json_dump({"batch":batch,"metric_values":imported,"matched_rows":matched_rows,"unmatched_rows":skipped,"relevant_files":relevant_files,"notes":notes[:100]})))
+                     ("creator-business-metrics",str(source.resolve()),now_utc(),len(touched),0,0,json_dump({"batch":batch,"captured_at":batch_captured_at,"metric_values":imported,"matched_rows":matched_rows,"unmatched_rows":skipped,"relevant_files":relevant_files,"gmv_usd_rows":gmv_usd_rows,"notes":notes[:100]})))
         conn.commit()
-    return {"ok":True,"import_batch":batch,"source":str(source.resolve()),"files_scanned":len(files),"relevant_files":relevant_files,"creators_matched":len(touched),"rows_matched":matched_rows,"metric_values_upserted":imported,"unmatched_rows":skipped,"notes":notes}
+    return {"ok":True,"import_batch":batch,"captured_at":batch_captured_at,"source":str(source.resolve()),"files_scanned":len(files),"relevant_files":relevant_files,"creators_matched":len(touched),"rows_matched":matched_rows,"metric_values_upserted":imported,"unmatched_rows":skipped,"gmv_usd_rows":gmv_usd_rows,"notes":notes}

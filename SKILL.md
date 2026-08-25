@@ -1,172 +1,20 @@
 ---
 name: youtube-creator-data-hub
 description: 本地 Python YouTube creator discovery and monitoring with related-video-to-creator video-to-creator web search, SQLite fact storage, objective channel/video metrics, snapshots, deterministic UgPhone/competitor classification, automatic creator relationship labels, country evidence, public contact scraping, discovery pre-scoring, configurable time-window capture, Chinese Dashboard, and user-defined secondary metrics. No Node/npm is required.
-version: 3.9.0
+version: 3.10.3
 ---
-
 # YouTube 博主数据中心
 
-## v3.9.0 结论优先 UI 与详情层
+## 当前版本规则
 
-- **主表只展示决策结论**：来源、Run ID、搜索批次、关键词来源、首次/重复发现、规则版本等过程/审计信息默认进入 Inspector 或导出，不得为了“信息完整”常驻主表。
-- **默认主表不得依赖横向滚动**：采用固定列预算、`width:100%` 与合理换行；Creator/Video 名称允许多行，禁止文本跨列覆盖。
-- **身份标签纵向堆叠**：一个标签一行、单元格内居中、不可溢出到后一列。
-- **同类动作必须分组**：批量操作按处理状态、入库与抓取、监控、优先级、更多等语义进入 dropdown；能力不删除，但不得同权重按钮平铺。
-- 【已保存的发现记录 · 博主】默认使用结论列；Discovery Run、原关键词/来源、发现次数、首次/最近发现、国家证据、完整命中 Query 放入发现详情 Inspector。
-- 【视频分类】继续执行有效分类（人工优先）和筛选/排序蓝色高亮规则；长视频标题必须换行，行级复核操作收拢。
-- Schema 保持 **15**。
-
-## v3.8.0 SmartTable、可控 Job Center 与 Continuity Gate 修正
-
-- **宽表必须保持可读列宽而不是压缩进视口**：所有 `.table-wrap > table` 由 SmartTable 增强，使用横向滚动、字段最小宽度和顶部滚动控制；选择列与核心 Creator/Video 实体列可 Sticky。不得通过逐字换行来“塞下”宽表。
-- **Job Center 是可隐藏但任务不可被误终止的全局组件**：必须提供最小化、关闭和单任务 dismiss。最小化/关闭只改变 UI；后台 Job 与 `job_runs` 历史继续执行/保留。
-- **AI Planner 瞬时故障要自动恢复**：read timeout、连接重置、429 与常见 5xx 最多重试两次，并把重试阶段写入 Job Progress。
-- **Creator Profile 前先做低成本预过滤**：先使用 Discovery 已有事实剔除明显超体量、官方来源、脚本外挂、用户排除项及明显主题噪声，再消耗 playlist/profile 请求。Profile Budget 必须显式记录。
-- **连续性采用频道级主题上下文**：基础主题通过频道名、最佳命中与最近上传整体确认；确认后，AFK/Auto Farm/Overnight/Multi-account 等相关近期视频可计入连续性，禁止要求每条标题都重复完整游戏名称。
-- **未 Profile 不是不合格**：预算不足或 Profile 请求失败的候选进入 `Pending Verification / 待验证`，不计为过滤失败，也不得进入正式高适配 Result Set。
-- Query Planner Prompt 为 **query-planner-v6**；Schema 保持 **15**。
-
-## v3.7.0 持久任务中心、人工频道生命周期与 Sourcing 安全门槛
-
-- **Job Center 必须跨页面连续可见**：长任务状态写入 `job_runs`，每个页面启动后自动恢复正在运行和最近任务；服务重启造成的未完成线程必须标记中断，不得继续显示“运行中”。
-- **频道状态采用系统检测 + 人工覆盖**：系统 `creators.availability_*` 永久保留原始检测；`creator_availability_overrides` 保存人工频道状态、内容状态、监控策略、备注和操作者，`creator_availability_override_audit` 保存变更历史。
-- 人工可确认：社区准则终止、版权终止、已删除/不存在、失效/未知不可用、暂时不可用；内容状态可标记无公开视频、历史视频已清空、长期停更；终止/停止策略不得删除本地历史。
-- **AI Query Budget 由 Planner 直接控制**：Planner v5 最多返回用户指定的 Max Queries 最终执行列表；确定性层仅去重和修复重复主题文本，不另造大规模 Query 列表。
-- **长期制作是 Gate，不是加分项**：用户要求长期/持续/经常制作时，默认最近最多50条上传中目标内容 ≥5 且覆盖 ≥3个月；未 Profile 候选不得进入正式高适配 Result Set。
-- **AI Fit 必须拆维度**：内容场景适配、连续性、品牌安全、体量适配、Query Coverage 独立输出，综合分只做汇总。
-- **Creator sourcing 默认品牌安全剔除**：云手机官方/产品频道、游戏官方/开发者频道或明确官方预告来源，以及以 Script/Hack/Cheat/Exploit/Executor/Keyless/Dupe 等为主的脚本外挂频道，不进入正式 Creator Result Set；除非用户明确要求包含。
-- Schema 升至 **15**，新增 `job_runs`、`creator_availability_overrides`、`creator_availability_override_audit`；不得覆盖既有事实、商业指标或人工视频复核。
-
-## v3.6.0 商业表现事实层与产品组件基础
-
-- **商业表现是独立事实层，不得塞回 Creator 主表**：`creator_business_metrics` 保存 `metric_key/value`、周期、币种、Campaign、Region、来源、导入批次、捕获时间和原始行追溯；当前标准键包括 `gmv`、`new_users`、`orders`、`revenue`、`commission`、`cost`。
-- 【数据更新 → 商业表现数据】支持 CSV/XLSX/XLSM；只用确定性身份匹配（Channel ID / Channel URL / 唯一 Handle / 唯一精确频道名）。未匹配行必须报告，禁止模糊猜测写库。
-- 旧 V2 导入会额外扫描商业表格；也提供 CLI `import-business`。同一文件/Sheet/行/指标重复导入应 upsert，不产生重复记录。
-- 博主库必须显示紧凑的 GMV/拉新摘要；GMV/拉新进入 Creator Fact，可用于全库筛选/排序与二次指标。详细商业数据、同步状态、新鲜度等放入右侧 Inspector。
-- **Entity Link 是全局规则**：表格中出现 Creator/Video 名称时优先提供 YouTube 外链；本地详情作为次级入口。
-- **Context Action Bar 是全局操作设计**：不删除批量能力，但将相近动作按监控、优先级、标签、数据等语义分组，避免同权重按钮平铺。
-- **主表摘要 + Inspector**：主表只保留做判断所需核心字段；详细状态、证据、来源、历史按需进入右侧抽屉。
-- **Saved Views**：可持久化常用筛选/排序/分页状态；当前至少覆盖博主库与视频分类，为后续 Workbench 多 Tab 形态提供基础。
-- Schema 升至 **14**，新增 `creator_business_metrics` 和 `saved_views`；不得覆盖现有 SQLite 事实或人工复核。
-
-## v3.5.0 可见任务进度、表格可解释性与 Creator 可用性生命周期
-
-- **Long-running Job Visibility 是全局规则**：博主发现、抓取并入库、同步、离线重分类、批量复核、AI 搜索/Ask Hub/Brief/Compare/七日简报等长耗时操作通过后台 Job 执行；Dashboard 固定显示阶段、消息、进度、已处理/总量和耗时，完成/失败使用明确状态色。
-- **Filter/Sort Explainability 是全局规则**：任何参与当前筛选或排序的指标必须出现在对应表格中；相关表头统一以蓝色背景高亮，排序字段同时保留方向语义。二次指标的非默认筛选指标会动态加列。
-- 【视频分类】主表默认显示“有效分类（人工优先）”；系统原始分类降为审计字段并默认隐藏，仅在筛选/排序系统原始分类或检查人工/系统不一致时自动显列并以蓝色表头突出。人工分类存在时，业务筛选、排序、统计、二次指标与导出均以人工结果覆盖系统结果。
-- **Creator Availability Lifecycle 与同步健康分离**：新增可用、暂时不可用待确认、社区准则终止、版权终止、已删除/不存在、不可用原因未知等频道状态；只有公开 YouTube 页面给出明确终止原因时才标记社区准则/版权终止。
-- 频道明确终止/删除或连续不可用升级为终止态后，停止无意义的自动监控与重试，但永久保留本地 Creator/视频历史；【监控健康】提供“重新检测频道状态”以支持恢复。
-- 【监控健康】分别显示频道状态、同步健康和监控状态，博主名称直接链接 YouTube 主页；普通同步失败继续使用退避策略。
-- SQLite Schema 升至 **13**，仅增加 Creator 可用性状态字段；升级不会覆盖现有业务数据。
-
-## v3.4.0 有效分类、发现首屏、监控同步与 AI Agent 目标适配
-
-- **有效分类（人工优先）是业务默认口径**：`video_labels.human_role` 存在时覆盖 `label_suggestions.suggested_role` 用于筛选、排序、统计、二次指标与导出；系统原始分类继续保留作审计。Dashboard 显示分类来源，并支持筛选“人工结果 ≠ 系统结果”。
-- 【博主发现 → 已保存的发现记录】交互模式不得先把全部历史记录写入 DOM；生成 HTML 只保留 30 条静态兜底预览，页面首先检测交互服务并直接请求第一页。
-- 【数据更新 → 监控健康】博主名称链接到 YouTube 主页；界面解释正常/已到期/数据过期/等待重试/同步失败/已暂停，并提供单条与批量“立即同步”，支持增量、仅指标、仅频道和全历史模式。
-- **AI 搜索 Agent 不再只生成 Query**：Planner 同时输出结构化 Fit Criteria；本机执行 Query 后，对候选 Creator 最近最多 50 条上传做轻量抽样，再按基础主题、搜索要求、订阅范围、长期制作证据进行过滤和目标适配排序。
-- 对“中小体量”等没有数字的要求，v3.4.0 默认 `subscriber_max=100,000`，并在 Dashboard、Result Set 和 XLSX 中显式记录；用户在 Prompt 中写明数值时以用户要求为准。
-- AI Result Set 区分“已采集且数量=0”和“未采集”；XLSX 完整导出搜索主题、原 Prompt、语言/区域/国家/时间、Query 限额、Planner Strategy/Fit Criteria、计划与实际 Query、过滤统计、AI Provider/Model/Prompt Version，并新增 `Query Details` 工作表。
-- Schema 保持 12。
-
-## v3.3.2 分类证据分层
-
-- AFK、Auto Farm、24/7、multi-instance 属于 Creator Discovery / use-case 信号，不得单独触发视频【其他云手机】分类。
-- 只有明确云手机实体词（cloud phone / cloud emulator / 云手机等）或品牌证据才能判定云手机相关分类。
-- 已知品牌弱证据进入【待复核】，不得兜底为【其他云手机】。
-- Dashboard 支持离线重新识别全部系统分类；该操作不调用 YouTube API，并保留 `video_labels` 中的人工修正。
-
-## v3.3.1 批量动作一致性与交互实时刷新
-
-- **Action Parity 是硬规则**：任何支持多选的 Creator / Video 表格，只要存在单条可执行动作，就必须提供语义等价的批量动作；不能出现“单条能做、批量不能做”。
-- 【博主发现 → 本次搜索结果】与【已保存的发现记录 · 博主】均支持批量加入博主库、批量抓取并入库、抓取公开联系方式、工作流、监控开关与优先级。
-- 批量抓取使用统一的“抓取范围”选择器：近7/30/60/90/180/365天、指定日期范围、全历史；全历史在 UI 中明确标注“最多10,000条”。
-- **Live Data Refresh 是硬规则**：交互 Dashboard 的任何写库动作完成后，相关事实、统计、身份、本地视频数和二次指标必须直接重新读取 SQLite；不得要求用户重启 Dashboard 或运行 upgrade 才看到新数据。
-- 静态 Dashboard 仍是生成时快照；只有静态详情页/HTML 文件本身需要 `build_dashboard()` 重新生成。交互模式不得为了刷新统计而逐 Creator 重建整个 Dashboard。
-- Schema 保持 12。
-
-## v3.2.0 AI Result Set 与可操作检索工作流
-
-- Ask Hub / AI 搜索 Agent 每次执行自动留档为 Result Set，默认30条/页，支持筛选、排序、跨页选择和完整 XLSX 导出。
-- 新增 AI 检索历史，可回看每次问题/搜索主题、结果数、AI Run 与 Discovery Run。
-- Creator Brief / Creator 对比统一使用本地 Creator Picker：搜索候选、点击锁定，多选对比以标签显示。
-- AI 搜索 Agent 的自由文本字段明确为“AI 搜索要求”，区域/国家/时间等继续作为结构化硬约束。
-- `ai_runs` 保存输入/结果快照；cache hit 也留下独立用户调用记录。
-- Schema 升至 12，新增 `ai_result_sets` / `ai_result_items`，AI 搜索可显式关联 Discovery Run。
-- AI 仍是可选增强层；未配置 AI API 时全部既有核心功能保持可用。
-
-## v3.1.0 开放式 AI API 配置与搜索 Agent
-
-- AI 配置改为接口协议 + 自定义 Base URL + 本机 API Key + 自由模型 ID；不维护易过期的固定模型目录。
-- 支持 Responses、OpenAI-compatible Chat Completions、Anthropic Messages、Gemini generateContent 与 Mock 协议适配器。
-- Dashboard 可读取 API 返回的模型列表，也允许任何模型 ID 手工输入；`setup-ai.cmd` 不再 OpenAI 专用。
-- API Key 使用供应商中立的 `CREATOR_HUB_AI_API_KEY` 本机密钥槽，不进入 SQLite/浏览器。
-- AI 搜索 Agent 将规划后的 Query 交给现有 YouTube API Discovery 执行、去重、评分并保存发现记录。
-- AI 仍为可选增强层；Schema 保持 11。
-
-## v3.0.0 可插拔 AI Copilot
-
-- AI 默认关闭；不配置 AI API 时，全部既有核心功能完整可用。
-- 新增 Ask Hub、Creator Brief、Creator 对比、AI Query Planner、七日 Intelligence Brief 与 AI 调用记录。
-- AI 仅通过 allowlist 本地工具读取数据，不直接执行任意 SQL；v3.0.0 不提供 AI 自动写库动作。
-- AI Finding/Evidence 与确定性评分、系统分类、人工复核分层存储。
-- OpenAI API Key 使用环境变量 `OPENAI_API_KEY`，不进入 SQLite 或浏览器。
-- Schema 版本为 11。
-
-## v2.1.0 统一分页与跨页批量选择
-
-- 所有大型表格继续执行默认 30 条/页；监控健康现在也使用标准分页。
-- 所有支持多选批量操作的表格均提供当前页全选、全部结果全选和清空选择。
-- 视频分类的跨页全选由服务端解析当前筛选条件，可覆盖全库而不把全部 Video ID 发送到浏览器。
-- Schema 保持 10。
-
-## v2.0.0 长期运行与数据治理
-
-- 交互模式的二次指标/规则与 Query Expansion 配置持久化到 SQLite；浏览器存储只作为静态/临时回退。
-- 数据更新页提供监控健康、数据库健康、一致性备份/恢复和 Snapshot 生命周期维护。
-- Creator 同步记录失败类型、连续失败、下次重试和暂停状态；失败采用退避并支持批量恢复。
-- 博主发现支持处理工作流、永久排除、首次/重复发现与批量操作。
-- 二次指标支持分组/说明/依赖保护；Creator 页面统一呈现各类数据新鲜度。
-- Schema 版本为 10；升级只迁移结构和派生状态，不覆盖现有业务数据库。
-
-## v1.6.0 应用结果状态与视频分类性能
-
-- 应用结果的 activeRule 不再作为持久筛选跨会话残留；“清除全部条件”同时清除普通筛选、规则和搜索词，并在结果区明确显示当前条件。
-- 视频分类交互模式直接连接完整 SQLite，不先展示 300 条静态预览的 10 页分页；静态预览只在只读模式使用。
-- 视频分类页面查询与全局 KPI 统计拆分；无筛选总数直接 COUNT(videos)，并新增关键 SQLite 索引。
-- 数据库 Schema 版本为 5。
-
-## v1.5.0 全局二级导航与首次部署引导
-
-- 五个一级 Dashboard 页面都提供当前页二级导航，支持锚点定位、平滑滚动、滚动高亮和 URL Hash。
-- `setup.cmd` 完成后提供交互/静态 Dashboard、自动监控和 API 在线验证入口。
-- `scripts/python-run.cmd` 统一解析 `python` / `py -3`，并用于主要启动器与自动监控脚本。
-- `doctor` 输出实际 Python 路径并检查本地 8765 端口是否可用于交互服务。
-
-## v1.4.0 博主发现导航与历史关键词恢复
-
-- 【博主发现】当前页面在左侧展开四个锚点导航，并随主区域滚动同步高亮。
-- v1.3 前历史发现不再统一显示 `Legacy Discovery`；保留原始 `discovery_hits`，只重建派生博主结果。
-- 历史实际 Query 通过 Query Pack 长尾词和已出现基础 Query 恢复关键词族，按“推断原关键词 × Creator”聚合；来源标记为 `inferred / 历史推断`，不声称恢复了旧搜索批次边界。
-- v1.3+ 正式搜索的 `base_query_source=exact`；博主级发现 XLSX 同时导出【原关键词】与【关键词来源】。
-
-## v1.3.0 安装引导、XLSX 导出与发现数据模型 v2
-
-- 首次安装推荐运行 `setup.cmd`；API Key 推荐通过 `scripts\set-api-key.cmd` 写入 Windows 用户环境变量 `YOUTUBE_API_KEY`。
-- `doctor` 检查 Python/pip/openpyxl/SQLite/写权限/API Key；`doctor --online` 进一步验证 API Key。
-- 静态 Dashboard 只读；交互 Dashboard 由 `start-dashboard.cmd` 启动本机 Python 服务并连接本机 SQLite。
-- 核心表格可导出 XLSX；完整筛选结果导出需要交互模式。
-- 博主发现每次搜索产生一个 `discovery_runs.run_id`；同时保存博主级 `discovery_creator_results` 与视频级 `discovery_hits`。旧 discovery hits 不臆造真实 run 边界；v1.4.0 起按恢复的基础关键词生成带【历史推断】来源的聚合。
-
-## v1.2.1 交互筛选与二次指标排序修复
-
-- 修复构建指标/比值指标排序分支的前端引用错误。
-- 总览与视频分类筛选增加明确的“已应用条件 / 命中数量”反馈。
-- 升级时清理旧 Dashboard 输出并重建；交互 HTTP 服务禁用静态资产缓存，避免混用旧 JS。
-- 保留【疑似不再合作】标签及其“历史合作 + 监控中 + 数据新鲜 + 30 天无 UgPhone 新视频”的保守判定。
-
-
-本 Skill 的唯一事实源是 `data/creator_hub.sqlite`。
+- 当前源码版本为 **3.10.3**，Schema 为 **17**；源码仓库不得包含 SQLite 业务数据库、API Key、导出结果、备份或缓存。
+- 条件选择统一使用三级 Field Taxonomy：一级=客观数据/博主标签/构建指标/比值指标；二级=系统业务维度或用户自定义组；三级=具体指标。
+- 规则 / 标签构建器、二次指标应用结果、主博主库必须复用同一套“一条件一行”交互，不允许恢复旧式纵向堆叠三级选择器或独立搜索按钮。
+- 已构建指标与规则列表固定 **10 条/页**，使用列表内部纵向滚动，并与对应构建器保持等高；其他业务数据表默认仍按统一 30 条/页分页约定执行，除非页面另有明确设置。
+- 人工判断优先于系统/AI 自动判断；事实、派生、AI、人工与有效值必须保持可审计来源。
+- GMV 为 USD 累计快照，不做自动汇率换算；不同采集时间快照不得相加。
+- 后台长任务走持久 Job Engine；Schema 变更走 Migration Runner；可重复 AI 工作流保存冻结 Run Specification。
+- 新 API 消费者优先使用 `/api/v1`；Dashboard 的 Legacy API 只作兼容。
 
 ## 操作原则
 
@@ -221,7 +69,6 @@ python .\hub.py discover "关键词" --from-date 2026-08-01 --to-date 2026-08-13
 
 默认语言为 English，并内置拉美西语、巴西葡语、泰语、越南语、印尼语、韩语、日语、繁体中文（台湾）。Dashboard 可逐 Pack 启停、对当前语言长尾词增删，并预览本次实际 Query 数量。
 
-网页搜索 v0.9.0 起尝试跟随 YouTube continuation token 深度加载；API 搜索继续使用 `nextPageToken`。每个实际 Query 都独立写入 `discovery_hits`，同一 Creator 的结果保留最高发现评分并记录 Query Coverage。详见 `docs/QUERY_EXPANSION.md`。
 
 ## 指定时间视频入库
 
@@ -314,20 +161,3 @@ Codex 也可运行 `python hub.py review-reclassify`。
 
 
 发现评分的公式和分档口径见 `docs/DISCOVERY_SCORING.md`。
-
-## v1.1.0 二次指标粒度重构
-
-- 禁止将博主标签作为视频聚合输入。
-- 指标构建器只接受视频客观数据并输出博主级构建指标。
-- 比值指标引用博主客观数据或构建指标。
-- 规则/筛选四类对象统一为博主客观数据、博主标签、构建指标、比值指标。
-
-## v0.9.3 视频分类首屏分页修复
-
-- 视频分类页面加载脚本后立即将静态预览压缩为第一页 30 条。
-- 交互 API 完成后再以 SQLite 返回的第一页 30 条替换预览，避免初始化期间出现超过 30 条可见记录。
-- 所有后续翻页、每页条数确认、筛选和排序逻辑保持不变。
-
-## v0.9.2 地理筛选
-
-Dashboard 中所有 Creator 级国家/地区筛选统一使用区域 → 国家/地区级联：先选业务区域，再可选该区域内具体国家；不要直接向使用者展示 249 个国家的单层下拉框。

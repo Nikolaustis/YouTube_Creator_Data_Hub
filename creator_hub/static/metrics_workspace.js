@@ -21,6 +21,17 @@ const creatorFactFields=BASE.creator_fact_fields||BASE.objective_fields||{};
 const creatorLabels=BASE.creator_labels||BASE.aggregate_labels||{};
 const videoFactFields=BASE.video_fact_fields||BASE.video_objectives||{};
 const videoFilters=BASE.video_filters||BASE.video_labels||{};
+let fieldRegistry=[];
+function refreshFieldRegistry(){fieldRegistry=window.CDHFieldRegistry?CDHFieldRegistry.build(BASE,state?.metrics||[]):[]}
+function regEntries(pred){refreshFieldRegistry();return fieldRegistry.filter(pred)}
+function metricFieldEntries(type){
+  if(type==='creator_fact')return regEntries(e=>e.kind==='creator_fact'&&e.grain==='creator').map(e=>({...e,id:e.key}));
+  if(type==='creator_label')return regEntries(e=>e.kind==='creator_label').map(e=>({...e,id:e.key}));
+  if(type==='constructed'||type==='ratio')return regEntries(e=>e.kind===type).map(e=>({...e,id:e.key}));
+  return [];
+}
+function mountFieldPicker(select,entriesFn,namespace,placeholder='选择字段'){if(!window.CDHFieldRegistry||!select)return null;const root=select.nextElementSibling?.classList?.contains('field-picker')?select.nextElementSibling:null;const api=root?root._fieldPicker:CDHFieldRegistry.mount(select,{entries:entriesFn,namespace,placeholder});api?.refresh();return api}
+
 
 let interactive=false;
 async function post(path,payload={}){
@@ -36,7 +47,7 @@ async function refreshLiveMetricData(){
   BASE.cubes=base.cubes||{};
   BASE.brands=base.brands||BASE.brands||[];
   BASE.generated_at=base.generated_at||BASE.generated_at;
-  window.CDH_CREATOR_FACTS=FACTS;window.CDH_METRIC_BASE=BASE;
+  window.CDH_CREATOR_FACTS=FACTS;window.CDH_METRIC_BASE=BASE;refreshFieldRegistry();
   resultPage=1;renderAll();
 }
 
@@ -125,7 +136,7 @@ function load(){
   }catch(e){}
   return emptyState();
 }
-let state=load(),resultPage=1,resultSize=30,dbConfigReady=false;
+let state=load(),resultPage=1,resultSize=30,dbConfigReady=false,metricCatalogPage=1,metricCatalogSize=30,ruleCatalogPage=1,ruleCatalogSize=30;const metricCatalogSelected=new Set(),ruleCatalogSelected=new Set();
 function persistedState(){return {...state,activeRule:''}}
 async function saveStateToDb(){if(!interactive)return;try{await post('/api/settings/set',{key:'secondary_metrics',value:persistedState()});dbConfigReady=true}catch(e){console.warn('SQLite config save failed',e)}}
 function persist(){localStorage.setItem(KEY,JSON.stringify(persistedState()));if(interactive)saveStateToDb();resultPage=1;renderAll()}
@@ -228,15 +239,12 @@ function validRatioRef(ref){
   if(ref.kind==='constructed')return !!metricById(ref.key)&&metricById(ref.key).type==='constructed';
   return false;
 }
+function ratioRefEntries(){
+  refreshFieldRegistry();
+  return fieldRegistry.filter(e=>(e.kind==='creator_fact'&&e.ratio)||(e.kind==='constructed')).map(e=>({...e,id:e.kind==='creator_fact'?`creator_fact:${e.key}`:`constructed:${e.key}`}));
+}
 function ratioRefOptions(selected={}){
-  const placeholder='<option value="">请选择指标</option>';
-  let invalid='';
-  if(selected.kind&&selected.key&&!validRatioRef(selected))invalid=`<option value="${esc(selected.kind+':'+selected.key)}" selected>⚠ 配置异常：${esc(selected.key)}</option>`;
-  const facts=Object.entries(creatorFactFields).map(([k,v])=>`<option value="creator_fact:${k}" ${selected.kind==='creator_fact'&&selected.key===k?'selected':''}>${esc(v)}</option>`).join('');
-  const builtList=publicMetrics('constructed').slice();
-  if(selected.kind==='constructed'){const current=metricById(selected.key);if(current&&!builtList.some(m=>m.id===current.id))builtList.push(current)}
-  const built=builtList.map(m=>`<option value="constructed:${m.id}" ${selected.kind==='constructed'&&selected.key===m.id?'selected':''}>${esc(m.name)}${m.internal?'（迁移组件）':''}</option>`).join('');
-  return `${placeholder}${invalid}<optgroup label="博主客观数据">${facts}</optgroup><optgroup label="已构建指标">${built||'<option disabled>尚无构建指标</option>'}</optgroup>`;
+  const cur=selected.kind&&selected.key?`${selected.kind}:${selected.key}`:'';const tmp=document.createElement('select');CDHFieldRegistry.optionGroups(tmp,ratioRefEntries(),cur,'请选择指标');return tmp.innerHTML;
 }
 function ratioBuilder(metric={}){
   return `<div class="note">比值指标不直接聚合视频。请先把视频数据构建成博主级指标，再在这里做 A ÷ B。保存时不会自动选择默认分子或分母。</div>
@@ -258,6 +266,7 @@ function syncCurrentMetricDraft(){
 }
 function bindConstructed(){
   const source=document.getElementById('constructedSource'),filter=document.getElementById('constructedFilter'),agg=document.getElementById('constructedAgg'),win=document.getElementById('constructedWindow'),dates=document.getElementById('constructedCustomDates'),from=document.getElementById('constructedFrom'),to=document.getElementById('constructedTo');
+  if(source){const vEntries=()=>regEntries(e=>e.kind==='video_fact').map(e=>({...e,id:e.key}));mountFieldPicker(source,vEntries,'metric-builder-video','选择视频客观数据')}
   if(source&&agg)source.onchange=()=>{
     const oldAgg=agg.value,d=metricDrafts.constructed||defaultConstructedDraft();
     if(oldAgg&&oldAgg!=='count')d.last_non_count_aggregation=oldAgg;
@@ -270,8 +279,8 @@ function bindConstructed(){
   if(from)from.onchange=()=>syncCurrentMetricDraft();if(to)to.onchange=()=>syncCurrentMetricDraft();
 }
 function bindRatio(){
-  const a=document.getElementById('ratioNumerator'),b=document.getElementById('ratioDenominator');
-  if(a)a.onchange=()=>syncCurrentMetricDraft();if(b)b.onchange=()=>syncCurrentMetricDraft();
+  const a=document.getElementById('ratioNumerator'),b=document.getElementById('ratioDenominator'),entries=()=>ratioRefEntries();
+  if(a){mountFieldPicker(a,entries,'ratio-numerator','选择分子');a.onchange=()=>syncCurrentMetricDraft()}if(b){mountFieldPicker(b,entries,'ratio-denominator','选择分母');b.onchange=()=>syncCurrentMetricDraft()}
 }
 function renderMetricDynamic(metric=null){
   const out=document.getElementById('metricOutputType').value,box=document.getElementById('metricDynamic');
@@ -349,16 +358,22 @@ function metricDependencies(id){
  if((state.filters||[]).some(c=>['constructed','ratio'].includes(c.metric_type)&&c.metric_key===id))deps.push('当前应用筛选');
  return deps;
 }
+function catalogGroups(items){return [...new Set(items.map(x=>(x.group||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN'))}
+function fillGroupFilter(sel,groups,cur){if(!sel)return;sel.innerHTML='<option value="">全部分组</option><option value="__ungrouped__">未分组</option>'+groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');if(cur==='__ungrouped__'||groups.includes(cur))sel.value=cur}
+function catalogMatchGroup(item,val){return !val||(val==='__ungrouped__'?!(item.group||'').trim():(item.group||'')===val)}
+function catalogCompare(a,b,key){if(key==='name')return String(a.name||'').localeCompare(String(b.name||''),'zh-CN',{numeric:true,sensitivity:'base'});if(key==='group')return String(a.group||'').localeCompare(String(b.group||''),'zh-CN',{numeric:true,sensitivity:'base'})||String(a.name||'').localeCompare(String(b.name||''),'zh-CN');if(key==='type')return String(a.type||'').localeCompare(String(b.type||''))||String(a.name||'').localeCompare(String(b.name||''),'zh-CN');if(key==='conditions')return Number((a.conditions||[]).length)-Number((b.conditions||[]).length);return String(a.updated_at||'').localeCompare(String(b.updated_at||''))}
+function updateMetricSelected(){const el=document.getElementById('metricCatalogSelected');if(el)el.textContent=`已选择 ${metricCatalogSelected.size} 项`}
+function updateRuleSelected(){const el=document.getElementById('ruleCatalogSelected');if(el)el.textContent=`已选择 ${ruleCatalogSelected.size} 项`}
+function moveMetricGroup(group){if(!metricCatalogSelected.size)return alert('请先选择指标');for(const m of state.metrics)if(metricCatalogSelected.has(m.id)&&!m.internal){m.group=group;m.updated_at=iso()}metricCatalogSelected.clear();metricCatalogPage=1;persist()}
+function moveRuleGroup(group){if(!ruleCatalogSelected.size)return alert('请先选择规则');for(const r of state.rules)if(ruleCatalogSelected.has(r.id)){r.group=group;r.updated_at=iso()}ruleCatalogSelected.clear();ruleCatalogPage=1;persist()}
 function renderMetrics(){
-  const box=document.getElementById('metricList'),gf=document.getElementById('metricGroupFilter'),groups=[...new Set(state.metrics.filter(m=>!m.internal&&(m.group||'').trim()).map(m=>m.group.trim()))].sort((a,b)=>a.localeCompare(b,'zh-CN')),cur=gf?.value||'';
-  if(gf){gf.innerHTML='<option value="">全部分组</option>'+groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');if(groups.includes(cur))gf.value=cur;gf.onchange=renderMetrics}
-  const items=state.metrics.filter(m=>!m.internal&&(!gf?.value||(m.group||'')===gf.value));
-  if(!items.length){box.innerHTML='<div class="empty">尚无已构建指标。请从左侧自行构建。</div>';return}
-  box.innerHTML=items.map(m=>{const deps=metricDependencies(m.id),meta=[m.group?`分组：${m.group}`:'未分组',desc(m),`v${m.version||1}`,`更新：${m.updated_at||'—'}`].join(' · ');return `<div class="metric-item"><div class="metric-item-head"><div><div class="metric-item-title">${esc(m.name)} <span class="badge-fact">${typeNames[m.type]}</span></div><div class="metric-meta">${esc(meta)}</div>${m.description?`<div class="small">${esc(m.description)}</div>`:''}${deps.length?`<div class="small">被引用：${esc(deps.join('；'))}</div>`:''}</div><div class="inline"><button class="btn" data-toggle="${m.id}">${m.visible?'隐藏':'显示'}</button><button class="btn" data-edit="${m.id}">编辑</button><button class="btn danger" data-del="${m.id}" ${deps.length?'disabled title="存在依赖，不能删除"':''}>删除</button></div></div></div>`}).join('');
-  box.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{const m=metricById(b.dataset.toggle);m.visible=!m.visible;m.updated_at=iso();persist()});
-  box.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editMetric(b.dataset.edit));
-  box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const id=b.dataset.del,deps=metricDependencies(id);if(deps.length)return alert('该指标仍被以下对象引用，不能删除：\n'+deps.join('\n'));if(confirm('删除该指标？')){state.metrics=state.metrics.filter(x=>x.id!==id);persist()}});
+  const box=document.getElementById('metricList'),gf=document.getElementById('metricGroupFilter'),all=state.metrics.filter(m=>!m.internal),groups=catalogGroups(all),cur=gf?.value||'';fillGroupFilter(gf,groups,cur);const dl=document.getElementById('metricGroupOptions');if(dl)dl.innerHTML=groups.map(g=>`<option value="${esc(g)}"></option>`).join('');
+  const q=(document.getElementById('metricCatalogSearch')?.value||'').trim().toLowerCase(),key=document.getElementById('metricCatalogSort')?.value||'updated_at',desc=document.getElementById('metricCatalogDir')?.value!=='asc';let items=all.filter(m=>catalogMatchGroup(m,gf?.value||'')&&(!q||`${m.name||''} ${m.group||''} ${m.description||''}`.toLowerCase().includes(q)));items.sort((a,b)=>(desc?-1:1)*catalogCompare(a,b,key));
+  const pages=Math.max(1,Math.ceil(items.length/metricCatalogSize));metricCatalogPage=Math.max(1,Math.min(pages,metricCatalogPage));const start=(metricCatalogPage-1)*metricCatalogSize,shown=items.slice(start,start+metricCatalogSize);const summary=document.getElementById('metricCatalogSummary');if(summary)summary.textContent=`共 ${items.length} 项 · 当前 ${items.length?start+1:0}-${Math.min(start+metricCatalogSize,items.length)}`;
+  if(!shown.length)box.innerHTML='<div class="empty">没有符合当前条件的已构建指标。</div>';else box.innerHTML=shown.map(m=>{const deps=metricDependencies(m.id),meta=[m.group?`分组：${m.group}`:'未分组',descMetric(m),`v${m.version||1}`,`更新：${m.updated_at||'—'}`].join(' · ');return `<div class="metric-item"><div class="metric-item-head"><div class="metric-item-select"><input type="checkbox" data-select-metric="${m.id}" ${metricCatalogSelected.has(m.id)?'checked':''}><div><div class="metric-item-title">${esc(m.name)} <span class="badge-fact">${typeNames[m.type]}</span></div><div class="metric-meta">${esc(meta)}</div>${m.description?`<div class="small">${esc(m.description)}</div>`:''}${deps.length?`<div class="small">被引用：${esc(deps.join('；'))}</div>`:''}</div></div><div class="inline"><button class="btn" data-toggle="${m.id}">${m.visible?'隐藏':'显示'}</button><button class="btn" data-edit="${m.id}">编辑</button><button class="btn danger" data-del="${m.id}" ${deps.length?'disabled title="存在依赖，不能删除"':''}>删除</button></div></div></div>`}).join('');
+  box.querySelectorAll('[data-select-metric]').forEach(cb=>cb.onchange=()=>{if(cb.checked)metricCatalogSelected.add(cb.dataset.selectMetric);else metricCatalogSelected.delete(cb.dataset.selectMetric);updateMetricSelected()});box.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{const m=metricById(b.dataset.toggle);m.visible=!m.visible;m.updated_at=iso();persist()});box.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editMetric(b.dataset.edit));box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const id=b.dataset.del,deps=metricDependencies(id);if(deps.length)return alert('该指标仍被以下对象引用，不能删除：\n'+deps.join('\n'));if(confirm('删除该指标？')){state.metrics=state.metrics.filter(x=>x.id!==id);metricCatalogSelected.delete(id);persist()}});updateMetricSelected();CDHTableTools.renderPager({page:metricCatalogPage,pages,go:p=>{metricCatalogPage=p;renderMetrics()},firstId:'metricCatalogFirst',prevId:'metricCatalogPrev',nextId:'metricCatalogNext',lastId:'metricCatalogLast',buttonsId:'metricCatalogButtons',inputId:'metricCatalogPageInput',jumpId:'metricCatalogJump',pageInfoId:'metricCatalogPageInfo'});
 }
+function descMetric(m){if(m.type==='ratio')return `比值：${refDesc(m.numerator_ref)} ÷ ${refDesc(m.denominator_ref)}`;return `视频聚合：${specDesc(m)}`}
 
 function conditionRow(c={},i=0,kind='rule'){
   const d=document.createElement('div');d.className='condition-row';const geoOpt=kind==='filter'?'<option value="geography">地理位置</option>':'';
@@ -370,7 +385,7 @@ function conditionRow(c={},i=0,kind='rule'){
     if(ts.value==='geography'){
       ms.innerHTML='<option value="">选择区域</option>'+(GEO.groups||[]).map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');if(key&&(GEO.groups||[]).some(g=>g.id===key))ms.value=key;fillCountry(country);ms.onchange=()=>fillCountry('');val.style.display='none';return;
     }
-    ms.onchange=null;const opts=metricOptions(ts.value);ms.innerHTML=opts.length?opts.map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join(''):'<option value="">暂无该类指标</option>';if(key&&opts.some(x=>x[0]===key))ms.value=key;
+    ms.onchange=null;const entries=metricFieldEntries(ts.value);if(entries.length&&window.CDHFieldRegistry)CDHFieldRegistry.optionGroups(ms,entries,key,'请选择字段');else ms.innerHTML='<option value="">暂无该类指标</option>';if(key&&entries.some(x=>x.id===key))ms.value=key;mountFieldPicker(ms,()=>metricFieldEntries(ts.value),`condition-${kind}-${ts.value}`,'选择字段');
     if(ts.value==='creator_label'){
       op.innerHTML='<option value="truthy">存在 / 是</option><option value="falsy">不存在 / 否</option>';op.style.display='';val.style.display='none';
     }else{
@@ -388,9 +403,16 @@ function readConditions(kind='rule',includeBlank=false){
 function clearRule(){document.getElementById('ruleEditId').value='';document.getElementById('ruleName').value='';document.getElementById('ruleGroup').value='';document.getElementById('ruleDescription').value='';document.getElementById('ruleConditions').innerHTML='';addCondition({},'rule')}
 function saveRule(){const id=document.getElementById('ruleEditId').value,name=document.getElementById('ruleName').value.trim(),group=document.getElementById('ruleGroup').value.trim(),description=document.getElementById('ruleDescription').value.trim(),conditions=readConditions('rule');if(!name)return alert('请输入规则名称');if(!conditions.length)return alert('至少添加一个有效条件');const old=state.rules.find(x=>x.id===id),r={id:id||uid('r'),name,group,description,conditions,created_at:old?.created_at||iso(),version:(old?.version||0)+1,updated_at:iso()};if(old)Object.assign(old,r);else state.rules.push(r);clearRule();persist()}
 function editRule(id){const r=state.rules.find(x=>x.id===id);if(!r)return;document.getElementById('ruleEditId').value=id;document.getElementById('ruleName').value=r.name;document.getElementById('ruleGroup').value=r.group||'';document.getElementById('ruleDescription').value=r.description||'';const b=document.getElementById('ruleConditions');b.innerHTML='';(r.conditions||[]).forEach(c=>addCondition(c,'rule'));if(!b.children.length)addCondition({},'rule')}
-function renderRules(){const box=document.getElementById('ruleList'),sel=document.getElementById('activeRule');sel.innerHTML='<option value="">全部博主（不应用规则）</option>'+state.rules.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('');sel.value=state.activeRule||'';if(!state.rules.length){box.innerHTML='<div class="empty">尚无规则。</div>';return}box.innerHTML=state.rules.map(r=>{let hit=0;for(const c of creators)if(rulePass(r,c))hit++;return `<div class="metric-item"><div class="metric-item-head"><div><div class="metric-item-title">${esc(r.name)}${r.group?` <span class="badge-label">${esc(r.group)}</span>`:''}</div><div class="metric-meta">博主级规则 · ${r.conditions.length} 条件 · 命中 ${hit} · 更新 ${esc(r.updated_at||'—')}</div>${r.description?`<div class="small">${esc(r.description)}</div>`:''}</div><div class="inline"><button class="btn primary" data-apply="${r.id}">应用</button><button class="btn" data-editr="${r.id}">编辑</button><button class="btn danger" data-delr="${r.id}">删除</button></div></div></div>`}).join('');box.querySelectorAll('[data-apply]').forEach(b=>b.onclick=()=>{state.activeRule=b.dataset.apply;resultPage=1;renderAll()});box.querySelectorAll('[data-editr]').forEach(b=>b.onclick=()=>editRule(b.dataset.editr));box.querySelectorAll('[data-delr]').forEach(b=>b.onclick=()=>{state.rules=state.rules.filter(x=>x.id!==b.dataset.delr);if(state.activeRule===b.dataset.delr)state.activeRule='';persist()})}
+function renderRules(){
+ const box=document.getElementById('ruleList'),sel=document.getElementById('activeRule');sel.innerHTML='<option value="">全部博主（不应用规则）</option>'+state.rules.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('');sel.value=state.activeRule||'';const gf=document.getElementById('ruleGroupFilter'),groups=catalogGroups(state.rules),cur=gf?.value||'';fillGroupFilter(gf,groups,cur);const dl=document.getElementById('ruleGroupOptions');if(dl)dl.innerHTML=groups.map(g=>`<option value="${esc(g)}"></option>`).join('');const q=(document.getElementById('ruleCatalogSearch')?.value||'').trim().toLowerCase(),key=document.getElementById('ruleCatalogSort')?.value||'updated_at',desc=document.getElementById('ruleCatalogDir')?.value!=='asc';let items=state.rules.filter(r=>catalogMatchGroup(r,gf?.value||'')&&(!q||`${r.name||''} ${r.group||''} ${r.description||''}`.toLowerCase().includes(q)));items.sort((a,b)=>(desc?-1:1)*catalogCompare(a,b,key));const pages=Math.max(1,Math.ceil(items.length/ruleCatalogSize));ruleCatalogPage=Math.max(1,Math.min(pages,ruleCatalogPage));const start=(ruleCatalogPage-1)*ruleCatalogSize,shown=items.slice(start,start+ruleCatalogSize),summary=document.getElementById('ruleCatalogSummary');if(summary)summary.textContent=`共 ${items.length} 项 · 当前 ${items.length?start+1:0}-${Math.min(start+ruleCatalogSize,items.length)}`;
+ if(!shown.length)box.innerHTML='<div class="empty">没有符合当前条件的规则。</div>';else box.innerHTML=shown.map(r=>{let hit=0;for(const c of creators)if(rulePass(r,c))hit++;return `<div class="metric-item"><div class="metric-item-head"><div class="metric-item-select"><input type="checkbox" data-select-rule="${r.id}" ${ruleCatalogSelected.has(r.id)?'checked':''}><div><div class="metric-item-title">${esc(r.name)}${r.group?` <span class="badge-label">${esc(r.group)}</span>`:''}</div><div class="metric-meta">博主级规则 · ${r.conditions.length} 条件 · 命中 ${hit} · 更新 ${esc(r.updated_at||'—')}</div>${r.description?`<div class="small">${esc(r.description)}</div>`:''}</div></div><div class="inline"><button class="btn primary" data-apply="${r.id}">应用</button><button class="btn" data-editr="${r.id}">编辑</button><button class="btn danger" data-delr="${r.id}">删除</button></div></div></div>`}).join('');box.querySelectorAll('[data-select-rule]').forEach(cb=>cb.onchange=()=>{if(cb.checked)ruleCatalogSelected.add(cb.dataset.selectRule);else ruleCatalogSelected.delete(cb.dataset.selectRule);updateRuleSelected()});box.querySelectorAll('[data-apply]').forEach(b=>b.onclick=()=>{state.activeRule=b.dataset.apply;resultPage=1;renderAll()});box.querySelectorAll('[data-editr]').forEach(b=>b.onclick=()=>editRule(b.dataset.editr));box.querySelectorAll('[data-delr]').forEach(b=>b.onclick=()=>{state.rules=state.rules.filter(x=>x.id!==b.dataset.delr);ruleCatalogSelected.delete(b.dataset.delr);if(state.activeRule===b.dataset.delr)state.activeRule='';persist()});updateRuleSelected();CDHTableTools.renderPager({page:ruleCatalogPage,pages,go:p=>{ruleCatalogPage=p;renderRules()},firstId:'ruleCatalogFirst',prevId:'ruleCatalogPrev',nextId:'ruleCatalogNext',lastId:'ruleCatalogLast',buttonsId:'ruleCatalogButtons',inputId:'ruleCatalogPageInput',jumpId:'ruleCatalogJump',pageInfoId:'ruleCatalogPageInfo'});
+}
 
-function fillResultSort(){const sel=document.getElementById('resultSort'),cur=sel.value||'subscriber_count',visible=publicMetrics('constructed').concat(publicMetrics('ratio')).filter(m=>m.visible),opts=[['channel_title','博主名称'],['country','国家'],...Object.entries(creatorFactFields),['last_synced_at','最近同步'],...visible.map(m=>['metric:'+m.id,m.name])];const seen=new Set();sel.innerHTML=opts.filter(([k])=>!seen.has(k)&&seen.add(k)).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');if([...sel.options].some(o=>o.value===cur))sel.value=cur;else sel.value='subscriber_count'}
+function resultSortEntries(){
+  refreshFieldRegistry();
+  return fieldRegistry.filter(e=>e.grain==='creator'&&e.sortable&&e.kind!=='creator_label'&&(e.kind!=='constructed'&&e.kind!=='ratio'||state.metrics.find(m=>m.id===e.key)?.visible));
+}
+function fillResultSort(){const sel=document.getElementById('resultSort'),cur=sel.value||'subscriber_count',entries=resultSortEntries();CDHFieldRegistry.optionGroups(sel,entries,cur);if(![...sel.options].some(o=>o.value===cur))sel.value='subscriber_count';mountFieldPicker(sel,resultSortEntries,'secondary-result-sort','选择排序字段')}
 function resultSortValue(x,key){const c=x.c;if(key.startsWith('metric:'))return x.vals[key.slice(7)];if(key==='channel_title')return c.channel_title||c.handle||c.channel_id||'';if(key==='country')return c.country_resolved||c.country_api||'';if(key==='last_synced_at')return c.last_synced_at||'';return Number(c[key]??0)}
 function renderResultFilters(){const box=document.getElementById('resultFilterConditions');box.innerHTML='';(state.filters||[]).forEach(c=>addCondition(c,'filter'));if(!box.children.length)addCondition({},'filter')}
 function identityPills(c){const a=[c.partnered_ugphone?['合作过博主','identity-partnered']:['未合作博主','identity-unpartnered'],c.ldcloud_creator?['LDCloud合作博主','identity-competitor']:null,c.redfinger_creator?['RedFinger合作博主','identity-competitor']:null,c.vsphone_creator?['VSPhone合作博主','identity-competitor']:null,c.suspected_inactive_partner?['疑似不再合作','identity-suspected']:null].filter(Boolean);return a.map(([t,k])=>`<span class="pill ${k}">${esc(t)}</span>`).join('')}
@@ -428,8 +450,10 @@ function renderResults(){
   document.getElementById('resultBody').innerHTML=html.join('')||'<tr><td colspan="99" class="empty">没有命中的博主</td></tr>';const conditionBits=[];if(rule)conditionBits.push(`规则：${rule.name}`);if((state.filters||[]).length)conditionBits.push(`筛选：${state.filters.length} 条`);if(q)conditionBits.push('搜索词已启用');const conditionText=conditionBits.join(' · ');document.getElementById('resultConditionStatus').textContent=conditionText?`当前条件：${conditionText}`:'当前条件：无';document.getElementById('resultSummary').textContent=`共 ${rows.length} 条${rule?` · 当前规则：${rule.name}`:''} · 当前显示 ${rows.length?start+1:0}-${Math.min(start+resultSize,rows.length)}`;CDHTableTools.renderPager({page:resultPage,pages,go:p=>{resultPage=p;renderResults()},firstId:'resultFirst',prevId:'resultPrev',nextId:'resultNext',lastId:'resultLast',buttonsId:'resultPageButtons',inputId:'resultPageInput',jumpId:'resultJump',pageInfoId:'resultPageInfo'});
 }
 
-function renderAll(){renderMetrics();renderRules();renderResultFilters();renderResults()}
+function renderAll(){refreshFieldRegistry();renderMetrics();renderRules();renderResultFilters();renderResults()}
 
+document.getElementById('metricCatalogSearch').oninput=()=>{metricCatalogPage=1;renderMetrics()};document.getElementById('metricGroupFilter').onchange=()=>{metricCatalogPage=1;renderMetrics()};document.getElementById('metricCatalogSort').onchange=()=>{metricCatalogPage=1;renderMetrics()};document.getElementById('metricCatalogDir').onchange=()=>{metricCatalogPage=1;renderMetrics()};document.getElementById('metricCatalogPageSizeOk').onclick=()=>{metricCatalogSize=CDHTableTools.pageSize(document.getElementById('metricCatalogPageSize'),metricCatalogSize);document.getElementById('metricCatalogPageSize').value=String(metricCatalogSize);metricCatalogPage=1;renderMetrics()};document.getElementById('metricMoveGroupBtn').onclick=()=>{const g=document.getElementById('metricMoveGroup').value.trim();if(!g)return alert('请输入目标分组');moveMetricGroup(g)};document.getElementById('metricUngroupBtn').onclick=()=>moveMetricGroup('');
+document.getElementById('ruleCatalogSearch').oninput=()=>{ruleCatalogPage=1;renderRules()};document.getElementById('ruleGroupFilter').onchange=()=>{ruleCatalogPage=1;renderRules()};document.getElementById('ruleCatalogSort').onchange=()=>{ruleCatalogPage=1;renderRules()};document.getElementById('ruleCatalogDir').onchange=()=>{ruleCatalogPage=1;renderRules()};document.getElementById('ruleCatalogPageSizeOk').onclick=()=>{ruleCatalogSize=CDHTableTools.pageSize(document.getElementById('ruleCatalogPageSize'),ruleCatalogSize);document.getElementById('ruleCatalogPageSize').value=String(ruleCatalogSize);ruleCatalogPage=1;renderRules()};document.getElementById('ruleMoveGroupBtn').onclick=()=>{const g=document.getElementById('ruleMoveGroup').value.trim();if(!g)return alert('请输入目标分组');moveRuleGroup(g)};document.getElementById('ruleUngroupBtn').onclick=()=>moveRuleGroup('');
 document.getElementById('metricOutputType').onchange=()=>{syncCurrentMetricDraft();renderMetricDynamic()};
 document.getElementById('saveMetric').onclick=()=>saveMetric();document.getElementById('clearMetric').onclick=clearMetric;
 document.getElementById('addRuleCondition').onclick=()=>addCondition({},'rule');document.getElementById('saveRule').onclick=saveRule;document.getElementById('clearRule').onclick=clearRule;
@@ -440,5 +464,290 @@ document.getElementById('exportCfg').onclick=()=>{const blob=new Blob([JSON.stri
 document.getElementById('importCfg').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{state=migrateState(JSON.parse(rd.result));persist()}catch(_){alert('配置文件无效')}};rd.readAsText(f)};
 document.getElementById('resetCfg').onclick=()=>{if(confirm('清空全部已构建指标和规则？')){state=emptyState();localStorage.removeItem(KEY);if(interactive)saveStateToDb();renderAll()}};
 fetch('/api/ping').then(r=>r.ok?r.json():null).then(async x=>{interactive=!!x;if(interactive){await refreshLiveMetricData();await hydrateStateFromDb()}}).catch(()=>interactive=false);window.addEventListener('focus',()=>{if(interactive)refreshLiveMetricData().catch(()=>{})});window.addEventListener('storage',e=>{if(interactive&&e.key==='cdh-data-revision')refreshLiveMetricData().catch(()=>{})});
-document.getElementById('resultPageSize').value='30';clearMetric();clearRule();renderAll();
+refreshFieldRegistry();document.getElementById('resultPageSize').value='30';document.getElementById('metricCatalogPageSize').value='30';document.getElementById('ruleCatalogPageSize').value='30';clearMetric();clearRule();renderAll();
 })();
+
+/* CDH V3.10.3 UI PATCH START */
+(()=>{
+'use strict';
+const PATCH='3.10.3';
+if(window.__CDH_V3103_UI_PATCH__) return;
+window.__CDH_V3103_UI_PATCH__=PATCH;
+
+const CSS=`
+/* V3.10.3 · unified three-level condition UI across all Creator filter/rule surfaces */
+.metric-builder.v3103-grid{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+  grid-template-rows:auto auto!important;
+  column-gap:20px!important;
+  row-gap:16px!important;
+  align-items:stretch!important;
+}
+.metric-builder.v3103-grid>div{display:contents!important}
+.metric-builder.v3103-grid #metrics-builder{grid-column:1;grid-row:1;margin:0!important}
+.metric-builder.v3103-grid #metrics-saved{grid-column:2;grid-row:1;margin:0!important}
+.metric-builder.v3103-grid #metrics-rule-builder{grid-column:1;grid-row:2;margin:0!important}
+.metric-builder.v3103-grid #metrics-rules{grid-column:2;grid-row:2;margin:0!important}
+
+#metrics-saved.v3103-scroll-panel,#metrics-rules.v3103-scroll-panel{
+  display:flex!important;
+  flex-direction:column!important;
+  min-height:0!important;
+  overflow:hidden!important;
+  box-sizing:border-box!important;
+}
+#metrics-saved.v3103-scroll-panel #metricList,
+#metrics-rules.v3103-scroll-panel #ruleList{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  padding-right:4px;
+  margin-bottom:0!important;
+}
+#metrics-saved.v3103-scroll-panel #metricList::-webkit-scrollbar,
+#metrics-rules.v3103-scroll-panel #ruleList::-webkit-scrollbar{width:9px}
+#metrics-saved.v3103-scroll-panel #metricList::-webkit-scrollbar-thumb,
+#metrics-rules.v3103-scroll-panel #ruleList::-webkit-scrollbar-thumb{background:rgba(100,116,139,.38);border-radius:999px}
+
+/* One condition = one row, shared by Rule Builder and Creator Library result filters. */
+#ruleConditions.v3103-condition-list,
+#resultFilterConditions.v3103-condition-list,
+#ovFilterConditions.v3103-condition-list{
+  display:flex!important;
+  flex-direction:column!important;
+  gap:10px!important;
+}
+#ruleConditions .condition-row.v3103-condition-row,
+#resultFilterConditions .condition-row.v3103-condition-row,
+#ovFilterConditions .condition-row.v3103-condition-row{
+  width:100%!important;
+  max-width:none!important;
+  display:block!important;
+  margin:0!important;
+  padding:0 0 2px 0!important;
+  overflow-x:auto;
+  overflow-y:hidden;
+}
+#ruleConditions .v3103-condition-grid,
+#resultFilterConditions .v3103-condition-grid,
+#ovFilterConditions .v3103-condition-grid{
+  width:100%;
+  display:grid!important;
+  align-items:center;
+}
+#ruleConditions .v3103-condition-grid{
+  min-width:680px;
+  grid-template-columns:56px minmax(100px,.78fr) minmax(112px,.9fr) minmax(138px,1.16fr) 96px minmax(104px,.74fr) 38px;
+  gap:8px;
+}
+#ruleConditions .v3103-condition-grid.v3103-no-value{
+  min-width:570px;
+  grid-template-columns:56px minmax(100px,.78fr) minmax(112px,.9fr) minmax(138px,1.16fr) 106px 38px;
+}
+#resultFilterConditions .v3103-condition-grid,
+#ovFilterConditions .v3103-condition-grid{
+  min-width:920px;
+  grid-template-columns:72px minmax(140px,.8fr) minmax(160px,.95fr) minmax(210px,1.25fr) 112px minmax(140px,.85fr) 40px;
+  gap:10px;
+}
+#resultFilterConditions .v3103-condition-grid.v3103-no-value,
+#ovFilterConditions .v3103-condition-grid.v3103-no-value{
+  min-width:760px;
+  grid-template-columns:72px minmax(140px,.8fr) minmax(160px,.95fr) minmax(210px,1.25fr) 122px 40px;
+}
+#ruleConditions .v3103-condition-grid>*,
+#resultFilterConditions .v3103-condition-grid>*,
+#ovFilterConditions .v3103-condition-grid>*{min-width:0!important;max-width:none!important;margin:0!important}
+#ruleConditions .v3103-condition-grid select,
+#ruleConditions .v3103-condition-grid input,
+#resultFilterConditions .v3103-condition-grid select,
+#resultFilterConditions .v3103-condition-grid input,
+#ovFilterConditions .v3103-condition-grid select,
+#ovFilterConditions .v3103-condition-grid input{
+  width:100%!important;
+  height:42px!important;
+  box-sizing:border-box!important;
+}
+.v3103-tier3-combo{position:relative;width:100%;min-width:0}
+.v3103-tier3-native{display:none!important}
+.v3103-tier3-input{padding-right:36px!important;text-overflow:ellipsis}
+.v3103-tier3-picker{
+  position:absolute!important;right:1px!important;top:1px!important;bottom:1px!important;
+  width:34px!important;min-width:34px!important;height:40px!important;
+  padding:0!important;margin:0!important;border:0!important;
+  border-left:1px solid rgba(148,163,184,.26)!important;
+  background:transparent!important;color:#64748b!important;
+  display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer;
+}
+.v3103-lead{display:flex!important;align-items:center!important;min-height:42px;color:#64748b;white-space:nowrap}
+.v3103-delete{
+  width:38px!important;min-width:38px!important;height:42px!important;padding:0!important;
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+}
+.v3103-hidden-legacy,.v3103-hidden-search{display:none!important}
+#metrics-results .builder-panel>.inline.v3103-result-toolbar{margin-top:12px!important;flex-wrap:wrap!important;gap:10px!important;align-items:center!important}
+
+/* Main Creator Library: the deprecated stacked selector is fully retired too. */
+#ovFilterConditions{width:100%!important}
+#ovFilterConditions .condition-row.v3103-condition-row{overflow-x:auto!important}
+#ovFilterConditions .v3103-hidden-legacy,
+#ovFilterConditions .v3103-hidden-search{display:none!important}
+
+@media(max-width:1050px){
+  .metric-builder.v3103-grid{display:block!important}
+  .metric-builder.v3103-grid>div{display:block!important}
+  .metric-builder.v3103-grid #metrics-builder,
+  .metric-builder.v3103-grid #metrics-saved,
+  .metric-builder.v3103-grid #metrics-rule-builder,
+  .metric-builder.v3103-grid #metrics-rules{height:auto!important;margin-top:16px!important}
+  .metric-builder.v3103-grid #metrics-builder{margin-top:0!important}
+  #metrics-saved.v3103-scroll-panel,#metrics-rules.v3103-scroll-panel{max-height:720px}
+  #metrics-saved.v3103-scroll-panel #metricList,#metrics-rules.v3103-scroll-panel #ruleList{max-height:560px}
+}
+`;
+
+function injectCss(){
+  if(document.getElementById('cdh-v3103-ui-style'))return;
+  const s=document.createElement('style');s.id='cdh-v3103-ui-style';s.textContent=CSS;document.head.appendChild(s);
+}
+
+let layoutBusy=false, pageSizeBusy=false;
+function scheduleSyncHeights(){if(layoutBusy)return;layoutBusy=true;requestAnimationFrame(()=>{layoutBusy=false;syncHeights()})}
+function syncHeights(){
+  const root=document.querySelector('.metric-builder');
+  const mb=document.getElementById('metrics-builder'),ms=document.getElementById('metrics-saved'),rb=document.getElementById('metrics-rule-builder'),rs=document.getElementById('metrics-rules');
+  if(!root||!mb||!ms||!rb||!rs)return;
+  root.classList.add('v3103-grid');ms.classList.add('v3103-scroll-panel');rs.classList.add('v3103-scroll-panel');
+  if(window.matchMedia('(max-width:1050px)').matches){ms.style.height='';rs.style.height='';return}
+  ms.style.height='';rs.style.height='';
+  const h1=Math.ceil(mb.getBoundingClientRect().height),h2=Math.ceil(rb.getBoundingClientRect().height);
+  if(h1>0)ms.style.height=`${h1}px`;if(h2>0)rs.style.height=`${h2}px`;
+}
+
+function isBefore(a,b){return !!(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)}
+function nativePageSizeControl(panel,list){
+  if(!panel||!list)return null;
+  const inputs=[...panel.querySelectorAll('input[type="number"]')].filter(i=>isBefore(i,list));
+  if(!inputs.length)return null;
+  let input=inputs.find(i=>{
+    const p=i.parentElement,pp=p?.parentElement;
+    const t=((p?.innerText||'')+' '+(pp?.innerText||'')).replace(/\s+/g,' ');
+    return t.includes('每页')&&!t.includes('跳转到');
+  })||inputs[0];
+  const buttons=[...panel.querySelectorAll('button')].filter(b=>isBefore(b,list)&&(b.textContent||'').trim()==='确定');
+  let button=buttons.find(b=>b.parentElement===input.parentElement)||buttons.at(-1)||null;
+  return {input,button};
+}
+function forceTenPerPage(panelId,listId){
+  const panel=document.getElementById(panelId),list=document.getElementById(listId);if(!panel||!list)return;
+  panel.classList.add('v3103-scroll-panel');
+  const ctl=nativePageSizeControl(panel,list);if(!ctl)return;
+  const old=String(ctl.input.value||'').trim();
+  if(old==='10')return;
+  ctl.input.value='10';ctl.input.setAttribute('value','10');
+  ctl.input.dispatchEvent(new Event('input',{bubbles:true}));ctl.input.dispatchEvent(new Event('change',{bubbles:true}));
+  if(ctl.button&&!ctl.button.disabled)setTimeout(()=>{try{ctl.button.click()}catch(e){}},0);
+}
+function configureNativePagination(){
+  if(pageSizeBusy)return;pageSizeBusy=true;
+  try{forceTenPerPage('metrics-saved','metricList');forceTenPerPage('metrics-rules','ruleList')}
+  finally{setTimeout(()=>{pageSizeBusy=false},50)}
+  scheduleSyncHeights();
+}
+
+function optionTexts(sel){return [...sel.options].map(o=>(o.textContent||'').trim()).filter(Boolean)}
+function isJoinSelect(sel){
+  if(sel.classList.contains('c-join'))return true;
+  const s=new Set(optionTexts(sel).map(x=>x.toUpperCase()));return s.has('AND')&&s.has('OR')&&s.has('NOT');
+}
+function isOperatorSelect(sel){
+  if(sel.classList.contains('c-op'))return true;
+  const t=optionTexts(sel).join(' ');
+  return /≥|≤|≠|存在\s*\/\s*是|不存在\s*\/\s*否/.test(t)||(/^\s*[><=≠≤≥]/.test(t)&&optionTexts(sel).length<=12);
+}
+function isDeleteButton(b){const t=(b.textContent||'').trim();return t==='×'||t==='✕'||t==='✖'||b.classList.contains('danger')}
+function isSearchControl(el){
+  const t=(el.textContent||el.placeholder||'').trim();
+  return t==='搜索'||t==='搜索指标'||/search/i.test(el.id||'')||/search/i.test(el.className||'');
+}
+function installSearchableTier3(native,grid){
+  if(!native)return null;
+  let wrap=native.closest('.v3103-tier3-combo');if(wrap){grid.appendChild(wrap);return wrap}
+  wrap=document.createElement('div');wrap.className='v3103-tier3-combo v3103-l3';
+  const listId='v3103-tier3-'+Math.random().toString(36).slice(2,10);
+  const input=document.createElement('input');input.type='text';input.className='v3103-tier3-input';input.setAttribute('list',listId);input.setAttribute('autocomplete','off');input.placeholder='选择 / 搜索三级指标';
+  const dl=document.createElement('datalist');dl.id=listId;
+  const picker=document.createElement('button');picker.type='button';picker.className='v3103-tier3-picker';picker.title='展开 / 搜索三级指标';picker.setAttribute('aria-label','展开 / 搜索三级指标');picker.textContent='⌄';
+  native.classList.add('v3103-tier3-native');wrap.appendChild(native);wrap.appendChild(input);wrap.appendChild(dl);wrap.appendChild(picker);grid.appendChild(wrap);
+  const options=()=>[...native.options].filter(o=>!o.disabled&&String(o.value||'')!=='');
+  const labelOf=()=>native.selectedOptions?.[0]?.textContent?.trim()||'';
+  const sync=()=>{const opts=options();dl.innerHTML='';opts.forEach(o=>{const x=document.createElement('option');x.value=(o.textContent||'').trim();dl.appendChild(x)});input.value=labelOf();input.disabled=native.disabled||opts.length===0;picker.disabled=input.disabled};
+  const commit=()=>{const typed=input.value.trim(),opts=options();const hit=opts.find(o=>(o.textContent||'').trim()===typed)||opts.find(o=>(o.textContent||'').trim().toLowerCase()===typed.toLowerCase());if(!hit){input.value=labelOf();return}if(native.value!==hit.value){native.value=hit.value;native.dispatchEvent(new Event('input',{bubbles:true}));native.dispatchEvent(new Event('change',{bubbles:true}))}input.value=(hit.textContent||'').trim()};
+  input.addEventListener('change',commit);input.addEventListener('blur',()=>setTimeout(commit,80));native.addEventListener('change',sync);
+  picker.addEventListener('click',()=>{input.focus();try{if(typeof input.showPicker==='function')input.showPicker()}catch(e){}});
+  new MutationObserver(sync).observe(native,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled']});sync();return wrap;
+}
+function findLead(row,join){if(join)return join;return [...row.querySelectorAll('span,div,label')].find(x=>x.children.length===0&&(x.textContent||'').trim()==='起始')||null}
+function compactConditionRow(row){
+  if(!row||!row.classList?.contains('condition-row'))return;
+  let grid=row.querySelector(':scope > .v3103-condition-grid');
+  if(row.dataset.v3103Compacted==='1'&&grid){syncValueMode(row,grid);return}
+  const selects=[...row.querySelectorAll('select')];if(!selects.length)return;
+  const join=selects.find(isJoinSelect)||null,op=selects.find(s=>s!==join&&isOperatorSelect(s))||null;
+  const candidates=selects.filter(s=>s!==join&&s!==op);if(candidates.length<3)return;
+  const levels=candidates.slice(-3),legacy=candidates.slice(0,-3);legacy.forEach(x=>x.classList.add('v3103-hidden-legacy'));
+  const buttons=[...row.querySelectorAll('button')],del=buttons.find(isDeleteButton)||buttons.at(-1)||null;
+  buttons.filter(b=>b!==del&&isSearchControl(b)).forEach(b=>b.classList.add('v3103-hidden-search'));
+  [...row.querySelectorAll('input')].filter(isSearchControl).forEach(x=>x.classList.add('v3103-hidden-search'));
+  const value=[...row.querySelectorAll('input')].find(x=>!x.classList.contains('v3103-hidden-search')&&(x.classList.contains('c-value')||['number','text'].includes((x.type||'text').toLowerCase())))||null;
+  const lead=findLead(row,join);
+  if(!grid){grid=document.createElement('div');grid.className='v3103-condition-grid';row.prepend(grid)}
+  const move=(el,cls)=>{if(!el)return;el.classList.add(cls);grid.appendChild(el)};
+  move(lead,'v3103-lead');move(levels[0],'v3103-l1');move(levels[1],'v3103-l2');installSearchableTier3(levels[2],grid);move(op,'v3103-op');move(value,'v3103-value');move(del,'v3103-delete');
+  row.classList.add('v3103-condition-row');row.dataset.v3103Compacted='1';
+  const sync=()=>requestAnimationFrame(()=>syncValueMode(row,grid));
+  selects.forEach(s=>s.addEventListener('change',sync));
+  new MutationObserver(sync).observe(row,{attributes:true,subtree:true,attributeFilter:['style','class']});
+  syncValueMode(row,grid);
+}
+function syncValueMode(row,grid){
+  const value=row.querySelector('.v3103-value');
+  const hidden=!value||value.style.display==='none'||getComputedStyle(value).display==='none';
+  grid.classList.toggle('v3103-no-value',hidden);
+}
+function compactConditionBox(id){
+  const box=document.getElementById(id);if(!box)return;box.classList.add('v3103-condition-list');[...box.children].forEach(compactConditionRow);
+}
+function compactAllConditions(){
+  compactConditionBox('ruleConditions');compactConditionBox('resultFilterConditions');compactConditionBox('ovFilterConditions');
+  ['ruleConditions','resultFilterConditions','ovFilterConditions'].forEach(id=>{
+    const box=document.getElementById(id);if(!box)return;
+    box.querySelectorAll('button').forEach(b=>{if((b.textContent||'').trim()==='搜索'&&b.closest('.condition-row'))b.classList.add('v3103-hidden-search')});
+  });
+  const rbox=document.getElementById('resultFilterConditions'),panel=rbox?.closest('.builder-panel');
+  if(panel)[...panel.children].forEach(x=>{if(x.classList?.contains('inline')&&x!==rbox)x.classList.add('v3103-result-toolbar')});
+}
+
+function observe(){
+  const metricList=document.getElementById('metricList'),ruleList=document.getElementById('ruleList');
+  if(metricList&&!metricList.__v3103Observed){metricList.__v3103Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{metricList.scrollTop=0},0)}).observe(metricList,{childList:true})}
+  if(ruleList&&!ruleList.__v3103Observed){ruleList.__v3103Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{ruleList.scrollTop=0},0)}).observe(ruleList,{childList:true})}
+  ['ruleConditions','resultFilterConditions','ovFilterConditions'].forEach(id=>{
+    const box=document.getElementById(id);if(box&&!box.__v3103Observed){box.__v3103Observed=true;new MutationObserver(()=>requestAnimationFrame(compactAllConditions)).observe(box,{childList:true,subtree:true})}
+  });
+}
+
+function boot(){
+  injectCss();
+  const root=document.querySelector('.metric-builder');if(root)root.classList.add('v3103-grid');
+  compactAllConditions();observe();configureNativePagination();syncHeights();
+  window.addEventListener('resize',scheduleSyncHeights,{passive:true});
+  [80,250,700,1500,3000].forEach(ms=>setTimeout(()=>{compactAllConditions();observe();configureNativePagination();syncHeights()},ms));
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+/* CDH V3.10.3 UI PATCH END */

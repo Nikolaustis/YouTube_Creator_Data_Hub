@@ -92,7 +92,7 @@ class YouTubeAPI:
         url = f"{self.base_url}/{endpoint}?" + urllib.parse.urlencode(query, doseq=True)
         last_error: Exception | None = None
         for attempt in range(self.retries + 1):
-            req = urllib.request.Request(url, headers={"User-Agent": "youtube-creator-data-hub/3.9.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "youtube-creator-data-hub/3.10.3"})
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     return json.loads(resp.read().decode("utf-8"))

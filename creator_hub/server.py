@@ -42,6 +42,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8")
         self.send_header("Content-Length",str(len(data))); self.end_headers(); self.wfile.write(data)
 
+    def _v1(self, data: Any=None, *, meta: dict[str,Any] | None=None, status: int=200):
+        return self._json({"ok":True,"data":data,"meta":meta or {},"api_version":"v1"},status)
+
     def _xlsx(self, data: bytes, filename: str):
         self.send_response(200)
         self.send_header("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -58,16 +61,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
     def _job_runner(self, task: str, b: dict[str, Any]):
         hub=self.hub
+        resume_from=max(0,int((b.get("_resume_checkpoint") or {}).get("current") or 0))
+        def resumed_ids(key="channel_ids"):
+            all_ids=list(b.get(key) or []); return all_ids[resume_from:],len(all_ids)
+        def offset_progress(progress,total):
+            if resume_from<=0:return progress
+            def wrapped(**kw):
+                if kw.get("current") is not None: kw["current"]=resume_from+int(kw["current"] or 0)
+                kw["total"]=total
+                progress(**kw)
+            return wrapped
         if task=="review_reclassify_all":
             return lambda progress: hub.reclassify_videos(only_missing=False, progress=progress)
         if task=="review_reclassify_pending":
             return lambda progress: hub.reclassify_review_queue(progress=progress)
         if task=="monitoring_sync":
-            return lambda progress: hub.sync_selected(list(b.get("channel_ids") or []), mode=str(b.get("mode") or "incremental"), metric_days=(int(b.get("metric_days")) if b.get("metric_days") else None), all_videos=bool(b.get("all_videos")), progress=progress)
+            ids,total=resumed_ids(); return lambda progress: hub.sync_selected(ids, mode=str(b.get("mode") or "incremental"), metric_days=(int(b.get("metric_days")) if b.get("metric_days") else None), all_videos=bool(b.get("all_videos")), progress=offset_progress(progress,total))
         if task=="monitoring_recheck":
-            return lambda progress: hub.recheck_channel_availability(list(b.get("channel_ids") or []), restore_monitoring=bool(b.get("restore_monitoring")), progress=progress)
+            ids,total=resumed_ids(); return lambda progress: hub.recheck_channel_availability(ids, restore_monitoring=bool(b.get("restore_monitoring")), progress=offset_progress(progress,total))
         if task=="capture_batch":
-            return lambda progress: hub.batch_capture_creators(list(b.get("channel_ids") or []), window=str(b.get("window") or "30"), from_date=str(b.get("from_date") or ""), to_date=str(b.get("to_date") or ""), priority=str(b.get("priority") or "normal"), actor=str(b.get("actor") or "dashboard-capture-batch"), progress=progress)
+            ids,total=resumed_ids(); return lambda progress: hub.batch_capture_creators(ids, window=str(b.get("window") or "30"), from_date=str(b.get("from_date") or ""), to_date=str(b.get("to_date") or ""), priority=str(b.get("priority") or "normal"), actor=str(b.get("actor") or "dashboard-capture-batch"), progress=offset_progress(progress,total))
         if task=="discovery_search":
             queries=b.get("queries") if isinstance(b.get("queries"),list) else []
             return lambda progress: hub.discover_expanded(str(b.get("query") or "").strip(), queries=[str(x) for x in queries], max_results=int(b.get("max_results") or 50), region=(b.get("region") or None), language=(b.get("language") or None), search_source=str(b.get("search_source") or "web"), target_country=(b.get("target_country") or None), target_group=(b.get("target_group") or None), lookback_days=int(b["lookback_days"]) if b.get("lookback_days") else None, from_date=(b.get("from_date") or None), to_date=(b.get("to_date") or None), max_queries=int(b.get("max_queries") or 80), query_language=(b.get("query_language") or None), progress=progress)
@@ -111,8 +124,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return hub.batch_creators(ids,str(b.get("action") or ""),value=str(b.get("value") or ""),actor="ai-result-batch",progress=progress)
             return run
         if task=="creator_batch":
+            ids,total=resumed_ids()
             def run(progress):
-                return hub.batch_creators(list(b.get("channel_ids") or []),str(b.get("action") or ""),value=str(b.get("value") or ""),actor=str(b.get("actor") or "dashboard-batch"),progress=progress)
+                return hub.batch_creators(ids,str(b.get("action") or ""),value=str(b.get("value") or ""),actor=str(b.get("actor") or "dashboard-batch"),progress=offset_progress(progress,total))
             return run
         if task=="review_batch":
             def run(progress):
@@ -163,6 +177,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 progress(stage="重建 Dashboard",message="Dashboard 已重建",percent=100)
                 return out
             return run
+        if task=="run_spec_execute":
+            return lambda progress: hub.execute_run_spec(int(b.get("run_spec_id") or 0),progress=progress)
         if task=="business_import":
             def run(progress):
                 filename=Path(str(b.get("filename") or "business_metrics.xlsx")).name
@@ -176,7 +192,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 try:
                     with tempfile.NamedTemporaryFile(prefix="creator_hub_business_",suffix=suffix,delete=False) as f:
                         f.write(raw); tmp=Path(f.name)
-                    out=hub.import_business_metrics(tmp,source_type=str(b.get("source_type") or "dashboard_import"),progress=progress)
+                    out=hub.import_business_metrics(tmp,source_type=str(b.get("source_type") or "dashboard_import"),capture_at=(str(b.get("capture_at") or "") or None),progress=progress)
                     out["uploaded_filename"]=filename
                     progress(stage="商业数据导入",message=f"导入完成：{out.get('metric_values_upserted',0)} 个指标值",percent=100)
                     return out
@@ -195,9 +211,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             "ai_ask":"Ask Hub", "ai_creator_brief":"Creator Brief", "ai_compare":"Creator 对比", "ai_weekly":"七日 Intelligence Brief", "ai_result_batch":"AI Result Set 批量操作",
             "creator_batch":"批量 Creator 操作", "review_batch":"批量人工复核",
             "maintenance_health":"数据库健康检查", "maintenance_backup":"数据库一致性备份", "maintenance_restore":"恢复数据库", "maintenance_snapshots":"Snapshot 生命周期维护",
-            "dashboard_rebuild":"重建 Dashboard", "business_import":"导入商业表现数据",
+            "dashboard_rebuild":"重建 Dashboard", "business_import":"导入商业表现数据", "run_spec_execute":"按冻结规格重新运行",
         }
-        return self.jobs.start(task=task,title=titles.get(task,task),runner=self._job_runner(task,b))
+        resource={
+            "monitoring_sync":"youtube","monitoring_recheck":"youtube","capture_batch":"youtube","discovery_search":"youtube",
+            "ai_query_search":"ai","ai_ask":"ai","ai_creator_brief":"ai","ai_compare":"ai","ai_weekly":"ai","run_spec_execute":"ai",
+            "maintenance_health":"maintenance","maintenance_backup":"maintenance","maintenance_restore":"maintenance","maintenance_snapshots":"maintenance","dashboard_rebuild":"maintenance",
+        }.get(task,"local")
+        resumable=task in {"monitoring_sync","monitoring_recheck","capture_batch","creator_batch"}
+        return self.jobs.start(task=task,title=titles.get(task,task),runner=self._job_runner(task,b),payload=b,resource_class=resource,resumable=resumable)
 
     def do_GET(self):
         if self.path == "/api/ping":
@@ -212,6 +234,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         path=urlparse(self.path).path; b=self._body()
         try:
+            # Stable V3.10 API contract. Legacy /api/* endpoints remain for the current Dashboard.
+            if path=="/api/v1/field-registry":
+                mb=metric_base_payload(self.hub.db_path,self.hub.settings);return self._v1(mb.get("field_registry") or {})
+            if path=="/api/v1/jobs/start":
+                task=str(b.get("task") or "").strip();return self._v1(self._start_job(task,dict(b.get("payload") or {})))
+            if path=="/api/v1/jobs/status": return self._v1(self.jobs.get(str(b.get("job_id") or "")))
+            if path=="/api/v1/jobs/list": return self._v1(self.jobs.list(int(b.get("limit") or 30)))
+            if path=="/api/v1/jobs/cancel": return self._v1(self.jobs.cancel(str(b.get("job_id") or "")))
+            if path=="/api/v1/jobs/retry": return self._v1(self.jobs.retry(str(b.get("job_id") or "")))
+            if path=="/api/v1/creators/list": return self._v1(self.hub.list_creators(monitored_only=bool(b.get("monitored_only")),limit=int(b.get("limit") or 100)))
+            if path=="/api/v1/videos/list": return self._v1(self.hub.classification_list(page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30),search=str(b.get("search") or ""),conditions=list(b.get("conditions") or []),sort=str(b.get("sort") or "published"),direction=str(b.get("dir") or "desc")))
+            if path=="/api/v1/result-sets/get": return self._v1(self.hub.ai_result_set(int(b.get("result_set_id") or 0),page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30),search=str(b.get("search") or ""),conditions=list(b.get("conditions") or []),sort=str(b.get("sort") or "rank"),direction=str(b.get("dir") or "asc")))
+            if path=="/api/v1/result-sets/list": return self._v1(self.hub.ai_result_history(page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30),result_type=str(b.get("result_type") or ""),search=str(b.get("search") or "")))
+            if path=="/api/v1/run-specs/get": return self._v1(self.hub.run_spec(int(b.get("id") or 0)))
+            if path=="/api/v1/run-specs/list": return self._v1(self.hub.run_specs(str(b.get("spec_type") or ""),int(b.get("page") or 1),int(b.get("page_size") or 30)))
+            if path=="/api/v1/run-specs/clone": return self._v1(self.hub.clone_run_spec(int(b.get("id") or 0)))
+            if path=="/api/v1/run-specs/execute": return self._v1(self._start_job("run_spec_execute",{"run_spec_id":int(b.get("id") or 0)}))
+            if path=="/api/v1/intelligence/weekly-context": return self._v1(self.hub.intelligence.weekly_context())
+            if path=="/api/v1/contracts/effective": return self._v1(self.hub.effective_value(str(b.get("entity_type") or "creator"),str(b.get("entity_id") or ""),str(b.get("field_id") or "")))
+            if path=="/api/v1/contracts/history": return self._v1(self.hub.contracts.history(str(b.get("entity_type") or "creator"),str(b.get("entity_id") or ""),str(b.get("field_id") or ""),int(b.get("limit") or 50)))
             if path=="/api/jobs/start":
                 task=str(b.get("task") or "").strip()
                 return self._json({"ok":True,"job":self._start_job(task,dict(b.get("payload") or {}))})
@@ -220,17 +262,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self._json({"ok":bool(job),"job":job},200 if job else 404)
             if path=="/api/jobs/list":
                 return self._json({"ok":True,"jobs":self.jobs.list(int(b.get("limit") or 10))})
+            if path=="/api/jobs/cancel":
+                return self._json({"ok":True,"job":self.jobs.cancel(str(b.get("job_id") or ""))})
+            if path=="/api/jobs/retry":
+                return self._json({"ok":True,"job":self.jobs.retry(str(b.get("job_id") or ""))})
             if path=="/api/ai/status":
                 return self._json({"ok":True,**self.hub.ai_status()})
             if path=="/api/ai/config":
                 api_key=b.get("api_key")
                 clear_key=bool(b.get("clear_api_key"))
-                if (api_key or clear_key) and self.client_address[0] not in {"127.0.0.1","::1"}:
+                if (api_key or clear_key) and self.client_address[0] not in {".1","::1"}:
                     raise ValueError("API Key can only be configured from the local machine")
                 return self._json({"ok":True,**self.hub.configure_ai(dict(b.get("config") or b),api_key=(str(api_key) if api_key is not None else None),clear_api_key=clear_key)})
             if path=="/api/ai/models":
                 api_key=b.get("api_key")
-                if api_key and self.client_address[0] not in {"127.0.0.1","::1"}:
+                if api_key and self.client_address[0] not in {".1","::1"}:
                     raise ValueError("API Key can only be used from the local machine")
                 return self._json({"ok":True,**self.hub.ai_models(dict(b.get("config") or {}),api_key=(str(api_key) if api_key is not None else None))})
             if path=="/api/ai/test":
@@ -308,7 +354,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     return self._json({"ok":True,**self.hub.batch_review_matching(selection,str(b.get("action") or ""),role=str(b.get("role") or ""),brands=list(b.get("brands") or []),actor=str(b.get("actor") or "dashboard-batch"))})
                 return self._json({"ok":True,**self.hub.batch_review(list(b.get("video_ids") or []),str(b.get("action") or ""),role=str(b.get("role") or ""),brands=list(b.get("brands") or []),actor=str(b.get("actor") or "dashboard-batch"))})
             if path=="/api/monitoring/health":
-                return self._json({"ok":True,**self.hub.monitoring_health(page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30))})
+                return self._json({"ok":True,**self.hub.monitoring_health(page=int(b.get("page") or 1),page_size=int(b.get("page_size") or 30),search=str(b.get("search") or ""),filters=dict(b.get("filters") or {}),sort=str(b.get("sort") or "attention"),direction=str(b.get("dir") or "asc"))})
             if path=="/api/monitoring/sync":
                 return self._json({"ok":True,**self.hub.sync_selected(list(b.get("channel_ids") or []),mode=str(b.get("mode") or "incremental"),metric_days=(int(b.get("metric_days")) if b.get("metric_days") else None),all_videos=bool(b.get("all_videos")))})
             if path=="/api/monitoring/recheck":
@@ -386,10 +432,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     rsid=int(b.get("result_set_id") or 0)
                     payload={"search":str(b.get("search") or ""),"conditions":list(b.get("conditions") or []),"sort":str(b.get("sort") or "rank"),"direction":str(b.get("dir") or "asc")}
                     cols=columns or [
-                        ("result_rank","结果顺序"),("channel_title","博主"),("channel_id","Channel ID"),("handle","Handle"),("country","国家/地区"),("subscribers","订阅数"),
-                        ("objective_fit_score","综合目标适配分"),("objective_fit_status","综合适配等级"),("content_fit_score","内容场景适配"),("continuity_fit_score","连续性"),("brand_safety_score","品牌安全"),("audience_size_fit_score","体量适配"),("query_coverage_score","Query覆盖分"),("profile_verification_status","Profile验证"),("continuity_gate_passed","长期制作门槛"),("brand_safety_status","品牌安全状态"),("brand_safety_flags","品牌安全标记"),("objective_fit_reason","适配证据"),("objective_terms_matched","命中要求词"),
-                        ("sampled_recent_videos","最近上传抽样数"),("objective_recent_videos","最近样本相关视频数"),("objective_recent_ratio","最近样本相关占比"),("objective_active_months","相关内容覆盖月份"),("objective_first_match","样本最早相关视频"),("objective_last_match","样本最近相关视频"),
-                        ("discovery_score","发现评分"),("best_video_title","最佳命中视频"),("best_video_views","最佳视频播放量"),("query_coverage","Query Coverage"),("matched_queries","命中Query"),
+                        ("result_rank","结果顺序"),("candidate_pool","候选池"),("channel_title","博主"),("channel_id","Channel ID"),("handle","Handle"),("country","国家/地区"),("subscribers","订阅数"),
+                        ("objective_fit_score","综合目标适配分"),("objective_fit_status","综合适配等级"),("topic_affinity_score","主题适配"),("use_case_continuity_score","场景连续性"),("brand_safety_score","品牌安全"),("audience_size_fit_score","体量适配"),("query_coverage_score","Query覆盖分"),("profile_verification_status","Profile验证"),("continuity_gate_passed","长期制作门槛"),("brand_safety_status","品牌安全状态"),("brand_safety_flags","品牌安全标记"),("objective_fit_reason","适配证据"),("objective_terms_matched","命中要求词"),
+                        ("sampled_recent_videos","最近上传抽样数"),("topic_recent_videos","主题相关视频数"),("topic_active_months","主题覆盖月份"),("objective_recent_videos","场景相关视频数"),("objective_recent_ratio","场景相关占比"),("objective_active_months","场景覆盖月份"),("objective_first_match","样本最早场景视频"),("objective_last_match","样本最近场景视频"),("creator_language","主要内容语言"),("creator_language_ratio","目标语言占比"),("creator_language_status","内容语言状态"),
+                        ("representative_topic_video_title","主题代表视频"),("representative_topic_video_id","主题代表视频ID"),("representative_use_case_video_title","场景代表视频"),("representative_use_case_video_id","场景代表视频ID"),("discovery_score","发现评分"),("best_video_title","最佳搜索命中视频"),("best_video_views","最佳视频播放量"),("query_coverage","Query Coverage"),("matched_queries","命中Query"),
                         ("local_data_status","本地数据状态"),("ugphone_videos","UgPhone视频数"),("competitor_videos","竞品视频数"),("workflow_status","工作流"),("monitoring_enabled","监控中"),("priority","优先级")
                     ]
                     first=self.hub.ai_result_set(rsid,page=1,page_size=1,**payload)
@@ -403,19 +449,30 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             pg+=1
                     meta=[
                         ("Result Set ID",rsid),("Type",info.get("result_type")),("Input / Base Topic",info.get("input_text")),("Created At",info.get("created_at")),
-                        ("Search Requirements",req.get("search_requirements")),("Language",req.get("language")),("Region Group",req.get("target_group")),("Country",req.get("target_country")),("Lookback Days",req.get("lookback_days")),("Max Queries",req.get("max_queries")),("Per Query Video Limit",req.get("max_results")),
+                        ("Search Requirements",req.get("search_requirements")),("Search Language",req.get("language")),("Creator Content Language",fit.get("creator_language")),("Creator Language Min Ratio",fit.get("creator_language_min_ratio")),("Region Group",req.get("target_group")),("Country",req.get("target_country")),("Lookback Days",req.get("lookback_days")),("Max Queries",req.get("max_queries")),("Per Query Video Limit",req.get("max_results")),
                         ("Planner Strategy",plan.get("strategy")),("Planner Notes",plan.get("notes")),("Fit Criteria",fit),("Search Concepts",fit.get("search_concepts")),("Preferred Terms",fit.get("preferred_terms")),("Continuity Terms",fit.get("continuity_terms")),("Long-term Min Videos",fit.get("long_term_min_videos")),("Long-term Min Months",fit.get("long_term_min_months")),("Exclude Official Channels",fit.get("exclude_official_channels")),("Exclude Script/Cheat Channels",fit.get("exclude_script_cheat_channels")),("Exclude Terms",fit.get("exclude_terms")),("Subscriber Min",fit.get("subscriber_min")),("Subscriber Max",fit.get("subscriber_max")),
-                        ("Planned Queries",plan.get("queries")),("Executed Queries",md.get("queries_executed")),("Raw Hits",md.get("hits")),("Raw Unique Creators",md.get("raw_unique_creators",md.get("unique_creators"))),("Pre-filter Candidates",md.get("pre_filter_candidates")),("Profile Budget",md.get("profile_budget")),("Retained Creators",md.get("retained_creators",info.get("total_items"))),("Filtered Out",md.get("filtered_out")),("Filtered Categories",md.get("filtered_categories")),("Pending Verification",md.get("pending_verification",md.get("unverified_candidates"))),("Recent-upload Profiled Creators",md.get("profiled_creators")),("Recent-upload Profile API Calls",md.get("profile_api_calls")),
+                        ("Planned Queries",plan.get("queries")),("Executed Queries",md.get("queries_executed")),("Raw Hits",md.get("hits")),("Raw Unique Creators",md.get("raw_unique_creators",md.get("unique_creators"))),("Pre-filter Candidates",md.get("pre_filter_candidates")),("Profile Budget",md.get("profile_budget")),("Retained Creators",md.get("retained_creators",info.get("total_items"))),("Recommended Candidates",md.get("recommended_candidates")),("Backup Candidates",md.get("backup_candidates")),("Weak Candidates",md.get("weak_candidates")),("Risk Candidates",md.get("risk_candidates")),("Filtered Out",md.get("filtered_out")),("Filtered Categories",md.get("filtered_categories")),("Pending Verification",md.get("pending_verification",md.get("unverified_candidates"))),("Recent-upload Profiled Creators",md.get("profiled_creators")),("Recent-upload Profile API Calls",md.get("profile_api_calls")),
                         ("AI Provider",md.get("ai_provider")),("AI Model",md.get("ai_model")),("Prompt Version",md.get("prompt_version")),
                         ("Current Export Search",payload["search"]),("Current Export Conditions",payload["conditions"]),("Current Export Sort",payload["sort"]+" "+payload["direction"]),("AI Run ID",info.get("ai_run_id")),("Discovery Run ID",info.get("discovery_run_id"))
                     ]
                     planned_q=list(plan.get("queries") or []); executed=list(md.get("queries_executed") or [])
+                    funnel={str(x.get("query") or ""):dict(x) for x in (md.get("query_funnel") or []) if isinstance(x,dict)}
                     qrows=[]; seen=set()
                     for q in planned_q+executed:
                         q=str(q or "").strip()
                         if not q or q.casefold() in seen: continue
-                        seen.add(q.casefold()); qrows.append({"query":q,"planned":q in planned_q,"executed":q in executed,"planned_order":(planned_q.index(q)+1 if q in planned_q else None),"executed_order":(executed.index(q)+1 if q in executed else None)})
-                    extra=[("Query Details",[("query","Query"),("planned","Planner计划"),("executed","实际执行"),("planned_order","计划顺序"),("executed_order","执行顺序")],qrows)]
+                        seen.add(q.casefold()); f=funnel.get(q,{})
+                        qrows.append({"query":q,"planned":q in planned_q,"executed":q in executed,"planned_order":(planned_q.index(q)+1 if q in planned_q else None),"executed_order":(executed.index(q)+1 if q in executed else None),"video_hits":f.get("video_hits",0),"creator_hits":f.get("creator_hits",0),"raw_creators":f.get("raw_creators",0),"retained_creators":f.get("retained_creators",0),"risk_creators":f.get("risk_creators",0)})
+                    risk_conditions=list(payload["conditions"])+[{"field":"candidate_pool","op":"contains","value":"风险"}]
+                    def risk_it():
+                        pg=1
+                        while True:
+                            x=self.hub.ai_result_set(rsid,page=pg,page_size=5000,search=payload["search"],conditions=risk_conditions,sort="objective_fit_score",direction="desc")
+                            for r in x.get("rows") or []: yield r
+                            if pg>=int(x.get("pages") or 1): break
+                            pg+=1
+                    risk_cols=[("channel_title","博主"),("channel_id","Channel ID"),("objective_fit_score","综合适配分"),("brand_safety_score","品牌安全"),("brand_safety_flags","风险标记"),("representative_fit_video_title","代表性适配视频"),("creator_language","主要内容语言"),("creator_language_ratio","目标语言占比")]
+                    extra=[("Query Details",[("query","Query"),("planned","Planner计划"),("executed","实际执行"),("planned_order","计划顺序"),("executed_order","执行顺序"),("video_hits","视频命中"),("creator_hits","命中Creator"),("raw_creators","原始Creator"),("retained_creators","最终保留"),("risk_creators","风险候选")],qrows),("Risk Candidates",risk_cols,risk_it())]
                     return self._xlsx(xlsx_bytes(sheet or "AI Results",cols,ai_it(),metadata=meta,extra_sheets=extra),filename)
                 if source in {"discovery_creators","discovery_videos"}:
                     fn=self.hub.discovery_creator_history if source=="discovery_creators" else self.hub.discovery_history
@@ -450,13 +507,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self._json({"ok":True,**build_dashboard(self.hub.db_path,self.output_dir,self.hub.settings)})
             self._json({"ok":False,"error":"unknown endpoint"},404)
         except Exception as e:
-            self._json({"ok":False,"error":f"{type(e).__name__}: {e}"},500)
+            if str(path).startswith("/api/v1/"):
+                self._json({"ok":False,"error":{"code":type(e).__name__,"message":str(e)},"api_version":"v1"},500)
+            else:
+                self._json({"ok":False,"error":f"{type(e).__name__}: {e}"},500)
 
 
-def serve_dashboard(hub: CreatorHub, output_dir: str | Path, host: str="127.0.0.1", port: int=8765, open_browser: bool=True):
+def serve_dashboard(hub: CreatorHub, output_dir: str | Path, host: str=".1", port: int=8765, open_browser: bool=True):
     out=Path(output_dir); build_dashboard(hub.db_path,out,hub.settings)
     class H(DashboardHandler): pass
     H.hub=hub; H.output_dir=out; H.jobs=JobStore(hub.db_path)
+    def _runner_factory(task,payload):
+        dummy=object.__new__(H);dummy.hub=hub;dummy.output_dir=out
+        return DashboardHandler._job_runner(dummy,task,payload)
+    H.jobs.set_runner_factory(_runner_factory)
     server=ThreadingHTTPServer((host,port),H)
     url=f"http://{host}:{port}/index.html"
     if open_browser:

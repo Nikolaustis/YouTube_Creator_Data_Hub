@@ -49,6 +49,11 @@ class CreatorHub:
         init_db(self.db_path)
         self._api: YouTubeAPI | None = None
         self.unit_budget = unit_budget
+        # Current service split: cross-cutting architecture services live outside the legacy facade.
+        from .services import RunService, IntelligenceService, DataContractService
+        self.runs = RunService(self)
+        self.intelligence = IntelligenceService(self)
+        self.contracts = DataContractService(self.db_path)
 
     @property
     def api(self) -> YouTubeAPI:
@@ -87,24 +92,41 @@ class CreatorHub:
         return {r["key"]:{"value":json_load(r["value_json"],None),"updated_at":r["updated_at"]} for r in rows}
 
     # ---------- business metrics / saved workspace views ----------
-    def import_business_metrics(self, source: str | Path, *, source_type: str="manual_import", progress=None) -> dict[str,Any]:
+    def import_business_metrics(self, source: str | Path, *, source_type: str="manual_import", capture_at: str | None=None, progress=None) -> dict[str,Any]:
         from .importers import import_business_metrics
-        return import_business_metrics(self,source,source_type=source_type,progress=progress)
+        return import_business_metrics(self,source,source_type=source_type,capture_at=capture_at,progress=progress)
 
     def creator_business_metrics(self, channel_id: str) -> dict[str,Any]:
+        """Return point-in-time business snapshots.
+
+        The headline value for each metric is the latest captured snapshot, never the sum
+        of historical cumulative snapshots. UgPhone backend GMV is defined as USD.
+        """
         with connect(self.db_path) as conn:
             creator=conn.execute("SELECT channel_id,channel_title,handle,channel_url FROM creators WHERE channel_id=?",(channel_id,)).fetchone()
             if not creator: raise ValueError("creator not found")
-            rows=[dict(r) for r in conn.execute("""SELECT id,metric_key,metric_value,currency,period_start,period_end,campaign,region,source_type,source_ref,import_batch,captured_at,note
+            rows=[dict(r) for r in conn.execute("""SELECT id,metric_key,metric_value,currency,metric_value_usd,fx_rate_to_usd,fx_rate_date,fx_provider,fx_status,snapshot_kind,period_start,period_end,campaign,region,source_type,source_ref,import_batch,captured_at,note
                                                   FROM creator_business_metrics WHERE channel_id=?
-                                                  ORDER BY COALESCE(period_end,period_start) DESC,captured_at DESC,id DESC""",(channel_id,)).fetchall()]
-        totals={}
+                                                  ORDER BY captured_at DESC,id DESC""",(channel_id,)).fetchall()]
+        latest_at={}
         for r in rows:
-            key=r["metric_key"]; t=totals.setdefault(key,{"value":0.0,"currencies":set(),"records":0})
-            t["value"]+=float(r.get("metric_value") or 0); t["records"]+=1
-            if r.get("currency"): t["currencies"].add(r["currency"])
-        for t in totals.values(): t["currencies"]=sorted(t["currencies"])
-        return {"creator":dict(creator),"totals":totals,"rows":rows}
+            latest_at.setdefault(r["metric_key"],r.get("captured_at") or "")
+        totals={}
+        for key,at in latest_at.items():
+            bucket=[r for r in rows if r["metric_key"]==key and (r.get("captured_at") or "")==at]
+            monetary=key in {"gmv","revenue","commission","cost"}
+            if key == "gmv":
+                value=sum(float(r.get("metric_value") or 0) for r in bucket)
+                totals[key]={"value":value,"currency":"USD","captured_at":at,"records":len(bucket),"source_currencies":["USD"]}
+            elif monetary:
+                # No automatic currency conversion is performed.  Non-GMV money
+                # remains source data unless it is explicitly native USD.
+                usd=[r for r in bucket if str(r.get("currency") or "").upper()=="USD"]
+                value=sum(float(r.get("metric_value") or 0) for r in usd) if usd and len(usd)==len(bucket) else None
+                totals[key]={"value":value,"currency":"USD" if value is not None else "","captured_at":at,"records":len(bucket),"source_currencies":sorted({str(r.get("currency") or "") for r in bucket if r.get("currency")})}
+            else:
+                totals[key]={"value":sum(float(r.get("metric_value") or 0) for r in bucket),"currency":"","captured_at":at,"records":len(bucket),"source_currencies":[]}
+        return {"creator":dict(creator),"totals":totals,"rows":rows,"snapshot_semantics":"latest_point_in_time_total"}
 
     def saved_views(self, page_key: str) -> list[dict[str,Any]]:
         with connect(self.db_path) as conn:
@@ -148,6 +170,11 @@ class CreatorHub:
     def ai_result_history(self, page=1, page_size=30, result_type="", search=""): return self._ai().result_set_history(page=page,page_size=page_size,result_type=result_type,search=search)
     def ai_result_channel_ids(self, result_set_id, search="", conditions=None): return self._ai().result_set_channel_ids(result_set_id,search=search,conditions=conditions or [])
     def ai_feedback(self, finding_id, rating, note=""): return self._ai().feedback(finding_id, rating, note)
+    def run_spec(self, spec_id): return self.runs.get(int(spec_id))
+    def run_specs(self, spec_type="", page=1, page_size=30): return self.runs.list(spec_type,page,page_size)
+    def clone_run_spec(self, spec_id): return self.runs.clone(int(spec_id))
+    def execute_run_spec(self, spec_id, progress=None): return self.runs.execute(int(spec_id),progress=progress)
+    def effective_value(self, entity_type, entity_id, field_id): return self.contracts.effective(entity_type,entity_id,field_id)
 
     def creator_suggestions(self, query: str, *, limit: int=10) -> list[dict[str,Any]]:
         q=" ".join(str(query or "").split()).strip()
@@ -1137,7 +1164,13 @@ class CreatorHub:
             use_role=s["suggested_role"]; use_brands=json_load(s["brands_json"],[]); note="人工复核确认系统分类"
         else:
             use_role=role or s["suggested_role"]; use_brands=brands if brands is not None else json_load(s["brands_json"],[]); note="人工复核修正系统分类"
-        return self.label_video(video_id,use_role,brands=use_brands,actor=actor,note=note)
+        out=self.label_video(video_id,use_role,brands=use_brands,actor=actor,note=note)
+        try:
+            self.contracts.assert_value("video",video_id,"classification.role","human",use_role,source_ref=actor,observed_at=now_utc())
+            self.contracts.assert_value("video",video_id,"classification.brands","human",use_brands,source_ref=actor,observed_at=now_utc())
+        except Exception:
+            pass
+        return out
 
     def reclassify_review_queue(self, *, batch_size: int = 500, progress=None) -> dict[str, Any]:
         """Re-run the current deterministic classifier for every unresolved review item.
@@ -1649,7 +1682,7 @@ class CreatorHub:
         temporarily unavailable and is checked again later.
         """
         url=f"https://www.youtube.com/channel/{channel_id}"
-        req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 YouTube-Creator-Data-Hub/3.9.0","Accept-Language":"en-US,en;q=0.9,zh-CN;q=0.7"})
+        req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 YouTube-Creator-Data-Hub/3.10.3","Accept-Language":"en-US,en;q=0.9,zh-CN;q=0.7"})
         try:
             with urllib.request.urlopen(req,timeout=20) as resp:
                 text=resp.read(2_000_000).decode("utf-8",errors="ignore")
@@ -1725,6 +1758,13 @@ class CreatorHub:
                     conn.execute("UPDATE creators SET monitoring_enabled=1,sync_suspended=0 WHERE channel_id=?",(cid,))
                 processed+=1
             conn.commit()
+        for cid in ids:
+            try:
+                if availability_status: self.contracts.assert_value("creator",cid,"availability.status","human",availability_status,source_ref=actor,observed_at=at)
+                if content_status: self.contracts.assert_value("creator",cid,"content.status","human",content_status,source_ref=actor,observed_at=at)
+                if monitoring_policy: self.contracts.assert_value("creator",cid,"monitoring.policy","human",monitoring_policy,source_ref=actor,observed_at=at)
+            except Exception:
+                pass
         return {"requested":len(ids),"processed":processed,"availability_status":availability_status,"content_status":content_status,"monitoring_policy":monitoring_policy}
 
     def clear_creator_availability_override(self, channel_ids: list[str], *, actor: str="dashboard") -> dict[str, Any]:
@@ -1807,9 +1847,12 @@ class CreatorHub:
             conn.commit()
         return {"error_type":cat,"failures":fail,"next_retry_at":retry,"sync_suspended":bool(suspend),**(availability or {})}
 
-    def monitoring_health(self, *, page: int = 1, page_size: int = 30, limit: int | None = None) -> dict[str, Any]:
+    def monitoring_health(self, *, page: int = 1, page_size: int = 30, limit: int | None = None,
+                          search: str = "", filters: dict[str, Any] | None = None,
+                          sort: str = "attention", direction: str = "asc") -> dict[str, Any]:
         if limit is not None: page_size=int(limit)
         page=max(1,int(page or 1)); page_size=max(1,min(5000,int(page_size or 30)))
+        search=str(search or "").strip().lower(); filters=dict(filters or {}); direction="desc" if str(direction).lower()=="desc" else "asc"
         now=parse_iso(now_utc());rows=[];counts={"normal":0,"due":0,"failed":0,"suspended":0,"stale":0,"retry_wait":0,"not_applicable":0}
         availability_counts={"available":0,"unavailable_pending":0,"terminated_community":0,"terminated_copyright":0,"deleted":0,"unavailable_unknown":0}
         terminal={"terminated_community","terminated_copyright","deleted","unavailable_unknown"}
@@ -1817,8 +1860,7 @@ class CreatorHub:
             data=[dict(r) for r in conn.execute("""SELECT c.channel_id,c.channel_title,c.priority,c.monitoring_enabled,c.last_synced_at,c.last_sync_attempt_at,c.last_sync_status,c.last_sync_error,c.sync_error_type,c.consecutive_sync_failures,c.next_sync_at,c.next_retry_at,c.sync_suspended,c.channel_data_at,c.video_metrics_at,c.classification_data_at,c.contact_scraped_at,c.availability_status,c.availability_reason,c.availability_source,c.availability_checked_at,c.availability_failures,
                        o.availability_status AS manual_availability_status,o.content_status AS manual_content_status,o.monitoring_policy AS manual_monitoring_policy,o.note AS manual_availability_note,o.actor AS manual_availability_actor,o.updated_at AS manual_availability_updated_at
                 FROM creators c LEFT JOIN creator_availability_overrides o ON o.channel_id=c.channel_id
-                WHERE c.monitoring_enabled=1 OR COALESCE(c.availability_status,'available') IN ('unavailable_pending','terminated_community','terminated_copyright','deleted','unavailable_unknown') OR o.channel_id IS NOT NULL
-                ORDER BY CASE c.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,COALESCE(c.last_synced_at,'')""").fetchall()]
+                WHERE c.monitoring_enabled=1 OR COALESCE(c.availability_status,'available') IN ('unavailable_pending','terminated_community','terminated_copyright','deleted','unavailable_unknown') OR o.channel_id IS NOT NULL""").fetchall()]
         for r in data:
             system_av=r.get("availability_status") or "available"
             manual_av=r.get("manual_availability_status") or ""
@@ -1848,9 +1890,32 @@ class CreatorHub:
             r["monitoring_policy"]=manual_policy or ("normal" if r.get("monitoring_enabled") else "stopped")
             r["monitoring_state"]="monitoring" if r.get("monitoring_enabled") and manual_policy not in {"stopped","recovery_only","paused"} else "stopped";r["due_hours"]=hours;r["age_hours"]=round(age,1) if age is not None else None
             rows.append(r)
-        priority_order={"not_applicable":0,"suspended":1,"failed":2,"retry_wait":3,"stale":4,"due":5,"normal":6};rows.sort(key=lambda x:(priority_order.get(x["health_state"],9),-(x.get("consecutive_sync_failures") or 0),x.get("last_synced_at") or ""))
-        total=len(rows); pages=max(1,(total+page_size-1)//page_size); page=min(page,pages); start=(page-1)*page_size
-        return {"counts":counts,"availability_counts":availability_counts,"total":total,"rows":rows[start:start+page_size],"page":page,"page_size":page_size,"pages":pages,"generated_at":now_utc()}
+        # Filter after deriving effective/manual-aware statuses.  This preserves the same semantics
+        # for API, table filters, cards and exports without duplicating status logic in JS.
+        def match(r: dict[str, Any]) -> bool:
+            if search and search not in f"{r.get('channel_title') or ''} {r.get('channel_id') or ''}".lower(): return False
+            exact={"channel_status":"channel_status","health_state":"health_state","monitoring_state":"monitoring_state","priority":"priority","content_status":"content_status","monitoring_policy":"monitoring_policy"}
+            for fk,rk in exact.items():
+                want=str(filters.get(fk) or "")
+                if want and str(r.get(rk) or "")!=want:return False
+            return True
+        filtered=[r for r in rows if match(r)]
+        attention_order={"failed":0,"retry_wait":1,"stale":2,"due":3,"suspended":4,"not_applicable":5,"normal":6}
+        channel_order={"terminated_community":0,"terminated_copyright":1,"deleted":2,"unavailable_unknown":3,"unavailable_pending":4,"available":5}
+        priority_order={"high":0,"normal":1,"low":2,"archive":3}
+        def val(r: dict[str,Any]):
+            if sort=="attention":return (attention_order.get(r.get("health_state"),9),-(r.get("consecutive_sync_failures") or 0),r.get("last_synced_at") or "")
+            if sort=="channel_title":return str(r.get("channel_title") or r.get("channel_id") or "").lower()
+            if sort=="channel_status":return channel_order.get(r.get("channel_status"),9)
+            if sort=="health_state":return attention_order.get(r.get("health_state"),9)
+            if sort=="priority":return priority_order.get(r.get("priority"),9)
+            if sort=="age_hours":return float(r.get("age_hours") if r.get("age_hours") is not None else -1)
+            if sort=="failures":return int(r.get("consecutive_sync_failures") or 0)
+            if sort in {"last_synced_at","next_sync_at","next_retry_at"}:return str(r.get(sort) or "")
+            return str(r.get(sort) or "")
+        filtered.sort(key=val,reverse=(direction=="desc"))
+        total=len(filtered); pages=max(1,(total+page_size-1)//page_size); page=min(page,pages); start=(page-1)*page_size
+        return {"counts":counts,"availability_counts":availability_counts,"total":total,"rows":filtered[start:start+page_size],"page":page,"page_size":page_size,"pages":pages,"generated_at":now_utc(),"search":search,"filters":filters,"sort":sort,"dir":direction}
 
     def data_freshness(self, channel_id: str) -> dict[str, Any]:
         with connect(self.db_path) as conn:

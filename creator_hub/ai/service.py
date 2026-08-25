@@ -215,16 +215,27 @@ class AICopilot:
         x["discovery_score"]=float(score) if score not in (None,"") else None
         fit=x.get("objective_fit_score")
         x["objective_fit_score"]=float(fit) if fit not in (None,"") else None
-        for key in ("content_fit_score","continuity_fit_score","brand_safety_score","audience_size_fit_score","query_coverage_score"):
+        for key in ("content_fit_score","continuity_fit_score","topic_affinity_score","use_case_continuity_score","brand_safety_score","audience_size_fit_score","query_coverage_score"):
             v=x.get(key); x[key]=float(v) if v not in (None,"") else None
         x["objective_fit_status"]=str(x.get("objective_fit_status") or "")
         x["brand_safety_status"]=str(x.get("brand_safety_status") or "")
         x["brand_safety_flags"]=list(x.get("brand_safety_flags") or [])
+        x["candidate_pool"]=str(x.get("candidate_pool") or "推荐候选")
+        x["creator_language"]=str(x.get("creator_language") or "")
+        x["creator_language_status"]=str(x.get("creator_language_status") or "")
+        lr=x.get("creator_language_ratio"); x["creator_language_ratio"]=float(lr) if lr not in (None,"") else None
+        x["representative_fit_video_title"]=str(x.get("representative_fit_video_title") or "")
+        x["representative_fit_video_id"]=str(x.get("representative_fit_video_id") or "")
+        x["representative_fit_video_published_at"]=str(x.get("representative_fit_video_published_at") or "")
+        x["representative_topic_video_title"]=str(x.get("representative_topic_video_title") or "")
+        x["representative_topic_video_id"]=str(x.get("representative_topic_video_id") or "")
+        x["representative_use_case_video_title"]=str(x.get("representative_use_case_video_title") or x.get("representative_fit_video_title") or "")
+        x["representative_use_case_video_id"]=str(x.get("representative_use_case_video_id") or x.get("representative_fit_video_id") or "")
         x["profile_verification_status"]=str(x.get("profile_verification_status") or "")
         x["continuity_gate_passed"]=bool(x.get("continuity_gate_passed")) if x.get("continuity_gate_passed") is not None else None
         x["objective_fit_reason"]=str(x.get("objective_fit_reason") or "")
         x["objective_terms_matched"]=list(x.get("objective_terms_matched") or [])
-        for key in ("sampled_recent_videos","objective_recent_videos","objective_active_months"):
+        for key in ("sampled_recent_videos","objective_recent_videos","objective_active_months","topic_recent_videos","topic_active_months"):
             v=x.get(key); x[key]=int(v) if v not in (None,"") else None
         ratio=x.get("objective_recent_ratio")
         x["objective_recent_ratio"]=float(ratio) if ratio not in (None,"") else None
@@ -246,6 +257,59 @@ class AICopilot:
         return " ".join(str(value or "").casefold().split())
 
     @staticmethod
+    def _language_code(value: str) -> str:
+        v=str(value or "").strip().casefold()
+        return {"zh-tw":"zh","zh-cn":"zh","es-419":"es","pt-br":"pt","en":"en","th":"th","vi":"vi","id":"id","ko":"ko","ja":"ja"}.get(v,v.split("-")[0])
+
+    @classmethod
+    def _detect_title_language(cls, value: str) -> str:
+        text=str(value or "").strip().casefold()
+        if not text: return "unknown"
+        if re.search(r"[\u0e00-\u0e7f]",text): return "th"
+        if re.search(r"[\uac00-\ud7af]",text): return "ko"
+        if re.search(r"[\u3040-\u30ff]",text): return "ja"
+        if re.search(r"[\u4e00-\u9fff]",text): return "zh"
+        if re.search(r"[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]",text): return "vi"
+        toks=set(re.findall(r"[a-zà-ÿ]+",text))
+        if not toks: return "unknown"
+        lex={
+          "es":{"el","la","los","las","una","uno","como","para","con","mejor","nuevo","guia","guía","actualizacion","actualización","que"},
+          "pt":{"uma","como","para","com","melhor","novo","guia","atualizacao","atualização","voce","você","nao","não","jogo"},
+          "id":{"cara","untuk","dengan","terbaik","baru","akun","panduan","game","main"},
+          "en":{"the","how","best","guide","new","update","with","for","and","you","this","get","way","why","when","all","farm","farming","account","accounts"},
+        }
+        scores={k:len(toks&v) for k,v in lex.items()}
+        best=max(scores,key=scores.get)
+        return best if scores[best]>=2 else "unknown"
+
+    @classmethod
+    def _language_profile(cls, titles: list[str], desired: str) -> dict[str,Any]:
+        target=cls._language_code(desired); counts={}
+        for title in titles:
+            code=cls._detect_title_language(title)
+            if code=="unknown": continue
+            counts[code]=counts.get(code,0)+1
+        detected=sum(counts.values()); target_hits=counts.get(target,0)
+        ratio=(target_hits/detected) if detected else None
+        dominant=max(counts,key=counts.get) if counts else ""
+        return {"target":target,"counts":counts,"detected":detected,"target_hits":target_hits,"ratio":ratio,"dominant":dominant}
+
+    @staticmethod
+    def _fit_strategy(fc: dict[str,Any]) -> str:
+        parts=[]
+        lo,hi=fc.get("subscriber_min"),fc.get("subscriber_max")
+        if lo is not None or hi is not None:
+            parts.append("订阅硬约束 "+("" if lo is None else f">={int(lo):,}")+("" if hi is None else f" <= {int(hi):,}"))
+        if fc.get("creator_language"):
+            parts.append(f"Creator主要内容语言={fc.get('creator_language')}（有效样本占比>={float(fc.get('creator_language_min_ratio') or 0.6):.0%}）")
+        if fc.get("require_topic_match",True): parts.append("必须匹配基础主题")
+        if fc.get("prefer_long_term"):
+            parts.append(f"长期硬门槛>={int(fc.get('long_term_min_videos') or 5)}条且>={int(fc.get('long_term_min_months') or 3)}个月")
+        if fc.get("exclude_official_channels",True): parts.append("排除云手机/游戏官方")
+        if fc.get("exclude_script_cheat_channels",True): parts.append("排除主要脚本/外挂频道")
+        return "；".join(parts) or "高召回搜索后按结构化 Fit Criteria 排序。"
+
+    @staticmethod
     def _topic_tokens(query: str) -> list[str]:
         return [x for x in re.findall(r"[\w\-]+", str(query or "").casefold(), flags=re.UNICODE) if len(x)>=2]
 
@@ -262,9 +326,16 @@ class AICopilot:
         notes=list(out.get("notes") or [])
         if fc.get("subscriber_max") is None and any(x in text for x in ("中小体量","中小型","中小博主","small-to-medium","small to medium","small/medium")):
             fc["subscriber_max"]=100000
-            notes.append("“中小体量”未给出数值时，v3.9.0 默认按 ≤100,000 订阅作为硬约束；可在搜索要求中写明其他范围。")
+            notes.append("“中小体量”未给出数值时，当前默认按 ≤100,000 订阅作为硬约束；可在搜索要求中写明其他范围。")
         mapped=[]
-        mapping=[("afk",["AFK"]),("挂机",["AFK","overnight"]),("auto farm",["auto farm"]),("自动刷",["auto farm","auto grind"]),("24/7",["24/7"]),("过夜",["overnight"]),("多开",["multi-instance","multi account"]),("多账号",["multi account"]),("multi-instance",["multi-instance"]),("multi account",["multi account"])]
+        mapping=[
+            ("afk",["AFK"]),
+            ("挂机",["AFK","overnight","farm while sleeping","idle farming"]),
+            ("auto farm",["auto farm"]),("自动刷",["auto farm","auto grind"]),("24/7",["24/7"]),("过夜",["overnight","farm while sleeping"]),
+            ("多开",["multi-instance","multi account","multiple accounts","alt account","alts","multiple alts","multi client","multiple clients","run two accounts","farm with alts","alt farming"]),
+            ("多账号",["multi account","multiple accounts","alt account","alts","multiple alts","farm with alts","alt farming"]),
+            ("multi-instance",["multi-instance","multi client","multiple clients"]),("multi account",["multi account","multiple accounts","alt account","alts"]),
+        ]
         for needle,vals in mapping:
             if needle in text: mapped.extend(vals)
         if mapped:
@@ -288,6 +359,8 @@ class AICopilot:
         fc.setdefault("subscriber_min",None);fc.setdefault("subscriber_max",None)
         fc.setdefault("require_topic_match",True)
         out["notes"]=notes;out["fit_criteria"]=fc
+        out["ai_strategy_raw"]=str(out.get("strategy") or "")
+        out["strategy"]=self._fit_strategy(fc)
         return out
 
     @staticmethod
@@ -452,6 +525,11 @@ class AICopilot:
             def topic_ok(t): return bool(topic_tokens) and all(tok in t for tok in topic_tokens)
             topic_hits=[t for t in texts if topic_ok(t)]
             channel_topic_context=(not topic_tokens) or bool(topic_hits) or (bool(channel_blob) and all(tok in channel_blob for tok in topic_tokens))
+            topic_recent=[x for x,tx in zip(recent,recent_text) if topic_ok(tx)] if topic_tokens else list(recent)
+            topic_months=sorted({str(x.get('published_at') or '')[:7] for x in topic_recent if str(x.get('published_at') or '')[:7]})
+            topic_representative=max(topic_recent,key=lambda x:str(x.get('published_at') or '')) if topic_recent else None
+            if not topic_representative and topic_ok(best) and r.get('best_video_id'):
+                topic_representative={'title':r.get('best_video_title') or r.get('title') or '', 'video_id':r.get('best_video_id') or r.get('video_id') or '', 'published_at':''}
             evidence_terms=preferred or continuity; continuity_terms=continuity or preferred
             matched=sorted({term for term in evidence_terms if any(term in t for t in texts)})
             # Once the Creator has channel-level topic context, continuity terms do not need
@@ -462,6 +540,14 @@ class AICopilot:
                     if continuity_terms and any(term in tx for term in continuity_terms): objective_recent.append(x)
             months=sorted({str(x.get('published_at') or '')[:7] for x in objective_recent if str(x.get('published_at') or '')[:7]})
             ratio=(len(objective_recent)/len(recent)) if recent else 0.0
+            desired_lang=str(fc.get('creator_language') or '')
+            lang_profile=self._language_profile([x.get('title') or '' for x in recent],desired_lang) if desired_lang and verified else {"target":desired_lang,"counts":{},"detected":0,"target_hits":0,"ratio":None,"dominant":""}
+            representative=None
+            if objective_recent:
+                def rep_key(x):
+                    tx=self._text(x.get('title') or '')
+                    return (sum(1 for term in continuity_terms if term in tx),str(x.get('published_at') or ''))
+                representative=max(objective_recent,key=rep_key)
             sub=r.get('subscribers'); reasons=[];hard=[];hard_categories=[];safety_flags=[]
             if (sub_min is not None or sub_max is not None) and sub is None: hard.append('订阅数未知，无法验证体量硬约束');hard_categories.append('audience_unverified')
             if sub_min is not None and sub is not None and int(sub)<int(sub_min): hard.append(f'订阅数低于 {int(sub_min):,}');hard_categories.append('audience_size')
@@ -470,6 +556,8 @@ class AICopilot:
             if excluded and any(term in all_blob for term in excluded): hard.append('命中用户排除词');hard_categories.append('user_exclusion')
             if fc.get('require_topic_match',True) and topic_tokens and not channel_topic_context: hard.append('频道/最近样本缺少基础主题上下文');hard_categories.append('topic_mismatch')
             if preferred and not matched: hard.append('未发现搜索要求中的场景/内容证据');hard_categories.append('objective_evidence')
+            if desired_lang and verified and int(lang_profile.get('detected') or 0)>=3 and float(lang_profile.get('ratio') or 0)<float(fc.get('creator_language_min_ratio') or 0.60):
+                hard.append(f"Creator主要内容语言不匹配：{lang_profile.get('dominant') or 'unknown'}，目标 {lang_profile.get('target')} 占比 {float(lang_profile.get('ratio') or 0):.0%}");hard_categories.append('creator_language')
             cloud_official,cloud_reason=self._official_cloud_brand_channel(channel_title)
             game_official,game_reason=self._official_game_channel(query,channel_title,str(details.get('description') or ''))
             desc_text=self._text(details.get('description') or '')
@@ -493,11 +581,12 @@ class AICopilot:
                 continuity_pass=len(objective_recent)>=min_long_videos and len(months)>=min_long_months
                 if len(objective_recent)<min_long_videos: hard.append(f'长期制作不足：最近样本相关视频 {len(objective_recent)} < {min_long_videos}');hard_categories.append('continuity')
                 if len(months)<min_long_months: hard.append(f'长期制作不足：相关内容覆盖 {len(months)} 个月 < {min_long_months}');hard_categories.append('continuity')
-            topic_component=40.0 if channel_topic_context else (20.0 if not topic_tokens else 0.0)
-            term_component=30.0 if not preferred else 30.0*min(1.0,len(matched)/max(1,len(preferred)))
-            density_component=30.0*min(1.0,ratio/0.30) if verified else 0.0
-            content_score=round(max(0,min(100,topic_component+term_component+density_component)),1)
-            continuity_score=round(50*min(1.0,len(objective_recent)/10.0)+50*min(1.0,len(months)/6.0),1) if verified else 0.0
+            topic_ratio=(len(topic_recent)/len(recent)) if recent else 0.0
+            topic_score=round(max(0,min(100,(45.0 if channel_topic_context else 0.0)+(35.0*min(1.0,topic_ratio/0.30) if verified else 0.0)+(20.0*min(1.0,len(topic_months)/4.0) if verified else 0.0))),1)
+            term_component=25.0 if not preferred else 25.0*min(1.0,len(matched)/max(1,len(preferred)))
+            use_case_score=round(max(0,min(100,(45.0*min(1.0,len(objective_recent)/10.0)+30.0*min(1.0,len(months)/6.0)+term_component) if verified else term_component)),1)
+            content_score=topic_score
+            continuity_score=use_case_score
             brand_safety=100.0
             if cloud_official or game_official or official_game_video or script_primary: brand_safety=0.0
             elif script_flags: brand_safety=max(35.0,80.0-200.0*script_ratio)
@@ -505,23 +594,26 @@ class AICopilot:
             elif sub is None: audience_score=0.0
             else: audience_score=100.0 if not any(c=='audience_size' for c in hard_categories) else 0.0
             expected_cov=max(1,min(5,len(fc.get('search_concepts') or []) or 1));coverage_score=round(min(100.0,100.0*int(r.get('query_coverage') or 0)/expected_cov),1)
-            total_score=round(max(0,min(100,0.35*content_score+0.30*continuity_score+0.20*brand_safety+0.10*audience_score+0.05*coverage_score)),1)
+            total_score=round(max(0,min(100,0.30*topic_score+0.30*use_case_score+0.20*brand_safety+0.10*audience_score+0.10*coverage_score)),1)
             if not verified and not wants_long: status='待验证'
             elif total_score>=85: status='A · 强匹配'
             elif total_score>=75: status='B · 较强'
             elif total_score>=65: status='C · 候选'
             else: status='D · 弱匹配'
             safety_status='排除' if brand_safety<=0 else ('需关注' if brand_safety<80 else '正常')
-            reasons.extend([f'内容适配 {content_score:.0f}',f'连续性 {continuity_score:.0f}',f'品牌安全 {brand_safety:.0f}',f'体量 {audience_score:.0f}',f'Query覆盖 {coverage_score:.0f}',f'近50条相关 {len(objective_recent)} / {len(recent)}',f'覆盖月份 {len(months)}'])
-            r.update({'objective_fit_score':total_score,'objective_fit_status':status,'objective_fit_reason':'；'.join(reasons),'objective_terms_matched':matched,'content_fit_score':content_score,'continuity_fit_score':continuity_score,'brand_safety_score':round(brand_safety,1),'audience_size_fit_score':round(audience_score,1),'query_coverage_score':coverage_score,'brand_safety_status':safety_status,'brand_safety_flags':safety_flags,'profile_verification_status':('已验证' if verified else '待验证'),'continuity_gate_passed':continuity_pass,'channel_topic_context_verified':bool(channel_topic_context),'sampled_recent_videos':len(recent) if verified else None,'objective_recent_videos':len(objective_recent) if verified else None,'objective_recent_ratio':ratio if verified else None,'objective_active_months':len(months) if verified else None,'objective_first_match':(min((x.get('published_at') or '') for x in objective_recent) if objective_recent else ''),'objective_last_match':(max((x.get('published_at') or '') for x in objective_recent) if objective_recent else ''),'objective_filter_reasons':hard})
+            candidate_pool=('风险候选 · 需人工复核' if safety_status=='需关注' else ('推荐候选' if status.startswith(('A','B')) else ('候补候选' if status.startswith('C') else '弱候选'))) 
+            language_status=('未验证' if not verified or int(lang_profile.get('detected') or 0)<3 else ('匹配' if float(lang_profile.get('ratio') or 0)>=float(fc.get('creator_language_min_ratio') or 0.60) else '不匹配')) if desired_lang else '未要求'
+            reasons.extend([f'主题适配 {topic_score:.0f}',f'场景连续性 {use_case_score:.0f}',f'品牌安全 {brand_safety:.0f}',f'体量 {audience_score:.0f}',f'Query覆盖 {coverage_score:.0f}',f'主题视频 {len(topic_recent)} / {len(recent)} · {len(topic_months)}个月',f'场景视频 {len(objective_recent)} / {len(recent)} · {len(months)}个月'])
+            if desired_lang: reasons.append(f"内容语言 {lang_profile.get('target')} {language_status}{(' '+format(float(lang_profile.get('ratio') or 0),'.0%')) if lang_profile.get('ratio') is not None else ''}")
+            r.update({'objective_fit_score':total_score,'objective_fit_status':status,'objective_fit_reason':'；'.join(reasons),'objective_terms_matched':matched,'content_fit_score':content_score,'continuity_fit_score':continuity_score,'topic_affinity_score':topic_score,'use_case_continuity_score':use_case_score,'brand_safety_score':round(brand_safety,1),'audience_size_fit_score':round(audience_score,1),'query_coverage_score':coverage_score,'brand_safety_status':safety_status,'brand_safety_flags':safety_flags,'candidate_pool':candidate_pool,'creator_language':str(lang_profile.get('dominant') or ''),'creator_language_target':str(lang_profile.get('target') or ''),'creator_language_ratio':lang_profile.get('ratio'),'creator_language_status':language_status,'profile_verification_status':('已验证' if verified else '待验证'),'continuity_gate_passed':continuity_pass,'channel_topic_context_verified':bool(channel_topic_context),'sampled_recent_videos':len(recent) if verified else None,'objective_recent_videos':len(objective_recent) if verified else None,'objective_recent_ratio':ratio if verified else None,'objective_active_months':len(months) if verified else None,'topic_recent_videos':len(topic_recent) if verified else None,'topic_active_months':len(topic_months) if verified else None,'representative_topic_video_title':(str(topic_representative.get('title') or '') if topic_representative else ''),'representative_topic_video_id':(str(topic_representative.get('video_id') or '') if topic_representative else ''),'representative_use_case_video_title':(str(representative.get('title') or '') if representative else ''),'representative_use_case_video_id':(str(representative.get('video_id') or '') if representative else ''),'objective_first_match':(min((x.get('published_at') or '') for x in objective_recent) if objective_recent else ''),'objective_last_match':(max((x.get('published_at') or '') for x in objective_recent) if objective_recent else ''),'representative_fit_video_title':(str(representative.get('title') or '') if representative else ''),'representative_fit_video_id':(str(representative.get('video_id') or '') if representative else ''),'representative_fit_video_published_at':(str(representative.get('published_at') or '') if representative else ''),'objective_filter_reasons':hard})
             if hard:
                 for cat in set(hard_categories): category_counts[cat]=category_counts.get(cat,0)+1
                 filtered.append({'channel_id':cid,'channel_title':channel_title,'reasons':hard,'categories':sorted(set(hard_categories)),'brand_safety_flags':safety_flags})
             else: retained.append(r)
-        retained.sort(key=lambda r:(float(r.get('objective_fit_score') or 0),float(r.get('continuity_fit_score') or 0),float(r.get('pre_score') or r.get('discovery_score') or 0)),reverse=True)
+        retained.sort(key=lambda r:(1 if str(r.get('candidate_pool') or '').startswith('推荐') else 0,float(r.get('objective_fit_score') or 0),float(r.get('continuity_fit_score') or 0),float(r.get('pre_score') or r.get('discovery_score') or 0)),reverse=True)
         self._enrich_local_facts(retained)
         public_meta={k:v for k,v in pmeta.items() if k not in {'channel_details','profile_status'}}
-        return retained,{**public_meta,'raw_unique_creators':len(raw),'pre_filter_candidates':len(candidates),'profile_budget':profile_limit,'retained_creators':len(retained),'filtered_out':len(filtered),'filtered_categories':category_counts,'filtered_examples':filtered[:40],'pending_verification':len(pending),'pending_verification_examples':pending[:30],'unverified_candidates':len(pending),'unverified_examples':pending[:20],'fit_criteria':fc}
+        return retained,{**public_meta,'raw_unique_creators':len(raw),'pre_filter_candidates':len(candidates),'profile_budget':profile_limit,'retained_creators':len(retained),'recommended_candidates':sum(1 for r in retained if str(r.get('candidate_pool') or '').startswith('推荐')),'backup_candidates':sum(1 for r in retained if str(r.get('candidate_pool') or '').startswith('候补')),'weak_candidates':sum(1 for r in retained if str(r.get('candidate_pool') or '').startswith('弱')),'risk_candidates':sum(1 for r in retained if str(r.get('candidate_pool') or '').startswith('风险')),'filtered_out':len(filtered),'filtered_categories':category_counts,'filtered_examples':filtered[:40],'pending_verification':len(pending),'pending_verification_examples':pending[:30],'unverified_candidates':len(pending),'unverified_examples':pending[:20],'fit_criteria':fc}
 
     def _save_result_set(self, *, result_type: str, input_text: str, rows: list[dict[str,Any]], ai_run_id: int | None=None, discovery_run_id: str | None=None, request: dict[str,Any] | None=None, plan: dict[str,Any] | None=None, metadata: dict[str,Any] | None=None, title: str="") -> int:
         at=now_utc(); norm=[self._normalize_result_item(r) for r in rows]
@@ -539,7 +631,7 @@ class AICopilot:
         if not field or target in (None,""): return True
         aliases={"title":"channel_title","country":"country","subs":"subscribers","score":"discovery_score"}
         field=aliases.get(field,field); value=row.get(field)
-        numeric=field in {"subscribers","ugphone_videos","competitor_videos","discovery_score","best_video_views","query_coverage","objective_fit_score","content_fit_score","continuity_fit_score","brand_safety_score","audience_size_fit_score","query_coverage_score","sampled_recent_videos","objective_recent_videos","objective_recent_ratio","objective_active_months"}
+        numeric=field in {"subscribers","ugphone_videos","competitor_videos","discovery_score","best_video_views","query_coverage","objective_fit_score","content_fit_score","continuity_fit_score","topic_affinity_score","use_case_continuity_score","brand_safety_score","audience_size_fit_score","query_coverage_score","sampled_recent_videos","objective_recent_videos","objective_recent_ratio","objective_active_months","creator_language_ratio"}
         if numeric:
             if value in (None,""): return False
             try: a=float(value); b=float(target)
@@ -560,11 +652,11 @@ class AICopilot:
             if q and q not in (str(r.get("channel_title") or "")+" "+str(r.get("channel_id") or "")+" "+str(r.get("country") or "")+" "+str(r.get("handle") or "")).casefold(): continue
             if not all(self._result_condition(r,c) for c in (conditions or [])): continue
             rows.append(r)
-        field={"rank":"result_rank","title":"channel_title","country":"country","subscribers":"subscribers","ugphone_videos":"ugphone_videos","competitor_videos":"competitor_videos","discovery_score":"discovery_score","best_video_views":"best_video_views","query_coverage":"query_coverage","objective_fit_score":"objective_fit_score","content_fit_score":"content_fit_score","continuity_fit_score":"continuity_fit_score","brand_safety_score":"brand_safety_score","audience_size_fit_score":"audience_size_fit_score","query_coverage_score":"query_coverage_score","objective_recent_videos":"objective_recent_videos","objective_active_months":"objective_active_months"}.get(str(sort),"result_rank")
+        field={"rank":"result_rank","title":"channel_title","country":"country","subscribers":"subscribers","ugphone_videos":"ugphone_videos","competitor_videos":"competitor_videos","discovery_score":"discovery_score","best_video_views":"best_video_views","query_coverage":"query_coverage","objective_fit_score":"objective_fit_score","content_fit_score":"content_fit_score","continuity_fit_score":"continuity_fit_score","topic_affinity_score":"topic_affinity_score","use_case_continuity_score":"use_case_continuity_score","brand_safety_score":"brand_safety_score","audience_size_fit_score":"audience_size_fit_score","query_coverage_score":"query_coverage_score","objective_recent_videos":"objective_recent_videos","objective_active_months":"objective_active_months","creator_language_ratio":"creator_language_ratio","candidate_pool":"candidate_pool"}.get(str(sort),"result_rank")
         reverse=str(direction).lower()=="desc"
         def key(r):
             v=r.get(field)
-            return str(v or "").casefold() if field in {"channel_title","country"} else float(v or 0)
+            return str(v or "").casefold() if field in {"channel_title","country","candidate_pool"} else float(v or 0)
         rows.sort(key=key,reverse=reverse)
         total=len(rows); page_size=max(1,min(5000,int(page_size or 30))); pages=max(1,(total+page_size-1)//page_size); page=max(1,min(int(page or 1),pages)); start=(page-1)*page_size
         meta=dict(rs); meta["request"]=json_load(meta.pop("request_json"),{}); meta["plan"]=json_load(meta.pop("plan_json"),{}); meta["metadata"]=json_load(meta.pop("metadata_json"),{})
@@ -629,14 +721,31 @@ class AICopilot:
         result["result"]=plan
         return result
 
-    def query_search(self, query: str, *, language: str="en", objective: str="creator discovery", max_queries: int=12, max_results: int=25, lookback_days: int | None=None, target_country: str | None=None, target_group: str | None=None, force: bool=False, progress=None) -> dict[str,Any]:
+    def query_search(self, query: str, *, language: str="en", objective: str="creator discovery", max_queries: int=12, max_results: int=25, lookback_days: int | None=None, target_country: str | None=None, target_group: str | None=None, force: bool=False, progress=None, frozen_plan: dict[str,Any] | None=None, frozen_execution: dict[str,Any] | None=None, parent_spec_id: int | None=None) -> dict[str,Any]:
         q=str(query or "").strip()
         if not q: raise ValueError("query is required")
         max_queries=max(1,min(40,int(max_queries or 12))); max_results=max(1,min(100,int(max_results or 25)))
-        if progress: progress(stage="AI 规划", message="正在把自然语言要求拆成搜索 Query 与目标适配条件", percent=3)
-        planned=self.query_planner(q,language=language,objective=objective,max_queries=max_queries,force=force,progress=progress); plan=planned.get("result") or {};fc=plan.get("fit_criteria") or {}
-        if progress: progress(stage="AI 规划", message="规划完成，准备执行 YouTube 搜索", percent=12)
-        planned_queries=list(plan.get("queries") or [])[:max_queries]
+        frozen=bool(frozen_plan)
+        if frozen:
+            # Clone & Re-run is deliberately deterministic at the planning layer: reuse the
+            # exact stored plan/queries instead of asking the LLM to plan again. Fresh YouTube
+            # facts can still change, which is recorded as a new Result Set/Run Spec.
+            plan=json.loads(json.dumps(frozen_plan or {},ensure_ascii=False,default=str))
+            exec_meta=dict(frozen_execution or {})
+            planned={"run_id":None,"result":plan,"provider":exec_meta.get("provider"),"model":exec_meta.get("model"),"prompt_version":exec_meta.get("prompt_version"),"frozen_plan":True}
+            if progress: progress(stage="冻结计划", message="正在按 Run Specification 的冻结 Query / Fit Criteria 重新执行", percent=8)
+        else:
+            if progress: progress(stage="AI 规划", message="正在把自然语言要求拆成搜索 Query 与目标适配条件", percent=3)
+            planned=self.query_planner(q,language=language,objective=objective,max_queries=max_queries,force=force,progress=progress); plan=planned.get("result") or {}
+        fc=plan.get("fit_criteria") or {}
+        fc["creator_language"]=self._language_code(language)
+        fc["creator_language_min_ratio"]=float(fc.get("creator_language_min_ratio") or 0.60)
+        plan["fit_criteria"]=fc; plan["strategy"]=self._fit_strategy(fc)
+        if progress: progress(stage=("冻结计划" if frozen else "AI 规划"), message="计划已锁定，准备执行 YouTube 搜索", percent=12)
+        if frozen and list((frozen_execution or {}).get("queries") or []):
+            planned_queries=[str(x) for x in list((frozen_execution or {}).get("queries") or []) if str(x).strip()][:max_queries]
+        else:
+            planned_queries=list(plan.get("queries") or [])[:max_queries]
         # discover_expanded always executes the exact base query once; pass only the Planner's remaining final queries.
         queries=[x for x in planned_queries if self._text(x)!=self._text(q)][:max(0,max_queries-1)]
         def _search_progress(**kw):
@@ -657,10 +766,33 @@ class AICopilot:
             progress(stage=str(kw.get("stage") or "目标适配检查"), message=str(kw.get("message") or "正在检查候选 Creator"), percent=pct, current=cur, total=total)
         fitted,fit_meta=self._agent_fit(q,objective,plan,discovery,progress=_fit_progress)
         if progress: progress(stage="保存 Result Set", message=f"保留 {len(fitted)} 个候选，正在保存结果快照", percent=93)
-        metadata={"queries_executed":discovery.get("queries_executed") or [],"hits":discovery.get("hits") or 0,"unique_creators":discovery.get("unique_creators") or 0,**fit_meta,"ai_provider":planned.get("provider"),"ai_model":planned.get("model"),"prompt_version":planned.get("prompt_version")}
+        query_funnel=[]
+        executed_queries=list(discovery.get("queries_executed") or [])
+        hit_by_query={}
+        try:
+            with connect(self.hub.db_path) as conn:
+                hit_by_query={str(r["query"]):{"video_hits":int(r["videos"] or 0),"creator_hits":int(r["creators"] or 0)} for r in conn.execute("SELECT query,COUNT(DISTINCT video_id) videos,COUNT(DISTINCT channel_id) creators FROM discovery_hits WHERE run_id=? GROUP BY query",(str(discovery.get("run_id") or ""),)).fetchall()}
+        except Exception:
+            hit_by_query={}
+        raw_rows=list(discovery.get("results") or [])
+        for qx in executed_queries:
+            raw_creator=sum(1 for r in raw_rows if qx in list(r.get("matched_queries") or []))
+            keep_creator=sum(1 for r in fitted if qx in list(r.get("matched_queries") or []))
+            risk_creator=sum(1 for r in fitted if qx in list(r.get("matched_queries") or []) and str(r.get("candidate_pool") or "").startswith("风险"))
+            query_funnel.append({"query":qx,**hit_by_query.get(qx,{}),"raw_creators":raw_creator,"retained_creators":keep_creator,"risk_creators":risk_creator})
+        metadata={"queries_executed":executed_queries,"hits":discovery.get("hits") or 0,"unique_creators":discovery.get("unique_creators") or 0,"query_funnel":query_funnel,**fit_meta,"ai_provider":planned.get("provider"),"ai_model":planned.get("model"),"prompt_version":planned.get("prompt_version")}
         rsid=self._save_result_set(result_type="youtube_agent",input_text=q,rows=fitted,ai_run_id=(int(ai_run_id) if ai_run_id else None),discovery_run_id=str(discovery.get("run_id") or "") or None,request={"query":q,"language":language,"search_requirements":objective,"max_queries":max_queries,"max_results":max_results,"lookback_days":lookback_days,"target_country":target_country,"target_group":target_group},plan=plan,metadata=metadata,title="AI 搜索 Agent · "+q)
+        run_spec=self.hub.runs.save("ai_query_search","AI 搜索 Agent · "+q,{"request":{"query":q,"language":language,"search_requirements":objective,"max_queries":max_queries,"max_results":max_results,"lookback_days":lookback_days,"target_country":target_country,"target_group":target_group},"plan":plan,"execution":{"queries":executed_queries,"profile_budget":fit_meta.get("profile_budget"),"prompt_version":metadata.get("prompt_version"),"provider":metadata.get("ai_provider"),"model":metadata.get("ai_model")}},source_ai_run_id=(int(ai_run_id) if ai_run_id else None),source_result_set_id=rsid,parent_spec_id=parent_spec_id)
+        with connect(self.hub.db_path) as conn:
+            conn.execute("UPDATE ai_result_sets SET run_spec_id=? WHERE id=?",(run_spec["id"],rsid));conn.commit()
+        for r in fitted:
+            cid=str(r.get("channel_id") or "")
+            if not cid: continue
+            try:
+                self.hub.contracts.assert_value("creator",cid,"ai.objective_fit","ai",{"score":r.get("objective_fit_score"),"pool":r.get("candidate_pool"),"topic":r.get("topic_affinity_score"),"use_case":r.get("use_case_continuity_score")},source_ref=f"result_set:{rsid}",rule_version=str(metadata.get("prompt_version") or ""),observed_at=now_utc())
+            except Exception: pass
         if progress: progress(stage="完成", message=f"AI 搜索完成：保留 {len(fitted)} 个 Creator", percent=100, current=len(fitted), total=len(fitted) or 1)
-        return {"planner":planned,"discovery":discovery,"objective_fit":fit_meta,"youtube_api_used":True,"queries_executed":discovery.get("queries_executed") or [],"run_id":discovery.get("run_id"),"result_set_id":rsid}
+        return {"planner":planned,"discovery":discovery,"objective_fit":fit_meta,"youtube_api_used":True,"queries_executed":discovery.get("queries_executed") or [],"run_id":discovery.get("run_id"),"result_set_id":rsid,"run_spec_id":run_spec["id"]}
 
     def ask_hub(self, question: str, *, force: bool=False) -> dict[str,Any]:
         q=str(question or "").strip()
@@ -669,11 +801,17 @@ class AICopilot:
         plan=dict(result["result"]); explanation=plan.pop("explanation","")
         rows=execute_creator_plan(self.hub,plan)
         rsid=self._save_result_set(result_type="ask_hub",input_text=q,rows=rows,ai_run_id=(int(result["run_id"]) if result.get("run_id") else None),request={"question":q},plan=plan,metadata={"explanation":explanation},title="Ask Hub · "+q[:100])
-        return {**result,"plan":plan,"explanation":explanation,"rows":rows[:30],"count":len(rows),"result_set_id":rsid}
+        run_spec=self.hub.runs.save("ask_hub","Ask Hub · "+q[:100],{"request":{"question":q},"plan":plan},source_ai_run_id=(int(result["run_id"]) if result.get("run_id") else None),source_result_set_id=rsid)
+        with connect(self.hub.db_path) as conn: conn.execute("UPDATE ai_result_sets SET run_spec_id=? WHERE id=?",(run_spec["id"],rsid));conn.commit()
+        return {**result,"plan":plan,"explanation":explanation,"rows":rows[:30],"count":len(rows),"result_set_id":rsid,"run_spec_id":run_spec["id"]}
 
     def weekly_brief(self, *, force: bool=False) -> dict[str,Any]:
         ctx=weekly_context(self.hub)
         result=self._run("weekly_brief",prompt=prompts.weekly_brief(ctx),schema=WEEKLY_SCHEMA,source=ctx,prompt_version=prompts.PROMPT_VERSIONS["weekly_brief"],force=force)
+        if isinstance(result.get("result"),dict):
+            result["result"]["headline"]=str(ctx.get("deterministic_headline") or result["result"].get("headline") or "七日 Creator Intelligence Brief")
+        result["brief_metrics"]=ctx.get("brief_metrics") or {}
+        result["intelligence"]={"workflow_changes":ctx.get("workflow_changes") or [],"gmv_changes":ctx.get("gmv_changes") or [],"new_users_changes":ctx.get("new_users_changes") or [],"top_discoveries":ctx.get("top_discoveries") or [],"partnership_intelligence":ctx.get("partnership_intelligence") or {},"recent_ai_pool_counts":ctx.get("recent_ai_pool_counts") or {},"recent_ai_unique_creators":ctx.get("recent_ai_unique_creators") or 0,"stuck_sync_runs":ctx.get("stuck_sync_runs") or 0}
         if result.get("run_id"):
             with connect(self.hub.db_path) as conn:
                 conn.execute("INSERT INTO ai_findings(run_id,finding_type,channel_id,title,summary,confidence,result_json,created_at) VALUES(?,?,?,?,?,?,?,?)",(result["run_id"],"weekly_brief",None,"七日 Creator Intelligence Brief",str(result["result"].get("summary") or result["result"].get("headline") or ""),None,json_dump(result["result"]),now_utc()));conn.commit()

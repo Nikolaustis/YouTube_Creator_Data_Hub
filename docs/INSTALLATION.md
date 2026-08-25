@@ -48,7 +48,7 @@ python .\hub.py doctor --online
 .\start-dashboard.cmd
 ```
 
-This starts a local Python HTTP service at `http://127.0.0.1:8765/`. The browser talks only to Python/SQLite on the same computer. It enables:
+This starts a local Python HTTP service at `http://.1:8765/`. The browser talks only to Python/SQLite on the same computer. It enables:
 
 - YouTube discovery and Query Expansion
 - writing creators/videos to SQLite
@@ -110,7 +110,7 @@ Install the Windows scheduled task:
 
 The task wakes every six hours. The Skill then refreshes only monitored creators whose priority cadence is due: high 6h, normal 24h, low 72h, archive 168h.
 
-## v2.1.0 long-running operation
+##  long-running operation
 
 After first installation, use **数据更新** in the interactive Dashboard for monitoring health, database backup/restore and Snapshot maintenance. Secondary Metrics / Rules and Query Expansion profiles are persisted in SQLite in interactive mode so a database backup also carries these business configurations.
 

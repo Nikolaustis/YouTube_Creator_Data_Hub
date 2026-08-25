@@ -6,7 +6,7 @@ echo [1/5] Creating a consistent pre-upgrade SQLite backup when an existing data
 call "%~dp0scripts\python-run.cmd" "%~dp0scripts\pre_upgrade_backup.py"
 if errorlevel 1 goto :fail
 
-echo [2/5] Upgrading local SQLite schema...
+echo [2/5] Upgrading local SQLite schema and running registered migrations...
 call "%~dp0scripts\python-run.cmd" "%~dp0hub.py" init
 if errorlevel 1 goto :fail
 
@@ -21,7 +21,7 @@ echo [5/5] Rebuilding Dashboard...
 call "%~dp0scripts\python-run.cmd" "%~dp0hub.py" dashboard
 if errorlevel 1 goto :fail
 
-echo Upgrade complete. Existing data was migrated in place.
+echo Upgrade complete. Source version: 3.10.3. Existing data was migrated in place.
 echo A pre-upgrade backup is kept under backups when an existing database was found.
 echo Use start-dashboard.cmd for interactive mode.
 exit /b 0

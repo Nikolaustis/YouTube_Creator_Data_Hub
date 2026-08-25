@@ -187,11 +187,5 @@ def execute_creator_plan(hub, plan: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def weekly_context(hub) -> dict[str, Any]:
-    now=datetime.now(timezone.utc); cutoff=(now-timedelta(days=7)).isoformat().replace("+00:00","Z")
-    with connect(hub.db_path) as conn:
-        new_creators=conn.execute("SELECT COUNT(DISTINCT channel_id) FROM discovery_creator_results WHERE found_at>=?",(cutoff,)).fetchone()[0]
-        top=[dict(r) for r in conn.execute("SELECT d.channel_id,d.channel_title,MAX(d.best_discovery_score) score,MAX(d.opportunity_tier) tier FROM discovery_creator_results d WHERE d.found_at>=? GROUP BY d.channel_id,d.channel_title ORDER BY score DESC LIMIT 10",(cutoff,)).fetchall()]
-        workflows=[dict(r) for r in conn.execute("SELECT status,COUNT(*) count FROM creator_workflow GROUP BY status").fetchall()]
-        sync=[dict(r) for r in conn.execute("SELECT status,COUNT(*) count FROM sync_runs WHERE started_at>=? GROUP BY status",(cutoff,)).fetchall()]
-    health=hub.monitoring_health(page=1,page_size=1).get("counts",{})
-    return {"period_days":7,"generated_at":now.isoformat(),"new_discovered_creators":new_creators,"top_discoveries":top,"workflow_counts":workflows,"sync_counts":sync,"monitoring_health":health}
+    from ..services.intelligence import IntelligenceService
+    return IntelligenceService(hub).weekly_context()
