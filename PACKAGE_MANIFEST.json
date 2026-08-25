@@ -1,33 +1,28 @@
 {
   "name": "youtube-creator-data-hub",
-  "version": "3.10.3",
-  "type": "full-source-release",
+  "version": "3.10.4",
+  "type": "full-source-github-upload",
   "database_included": false,
-  "secrets_included": false,
-  "schema_version": 17,
+  "business_data_included": false,
   "upgrade_compatible": true,
-  "validation": "scripts/self_check.py passed before packaging",
+  "schema_version": 15,
   "release_focus": [
-    "three-level-field-taxonomy",
-    "unified-one-row-condition-selector-all-surfaces",
-    "saved-metrics-rules-10-per-page-internal-scroll",
-    "persistent-job-engine",
-    "migration-runner",
-    "api-v1",
-    "frozen-run-specification",
-    "fact-derived-ai-human-effective-contract",
-    "creator-intelligence-engine"
+    "builder-natural-height-anchor",
+    "saved-metrics-height-follows-builder",
+    "rule-list-height-follows-builder",
+    "internal-scroll-10-items-per-page",
+    "no-version-specific-patch-runtime-dependency"
   ],
   "files": [
     {
       "path": ".gitignore",
-      "size_bytes": 497,
-      "sha256": "3e6da4b3e8b5b7476a3ad24a51ebc7cef9859e898be073d23f35a80e17f4e099"
+      "size_bytes": 589,
+      "sha256": "cb5058a441d741179e3e7585c52f5615edbc6dda13410fbbfe92c4617d156b81"
     },
     {
       "path": "CHANGELOG.md",
-      "size_bytes": 619,
-      "sha256": "eb77c86c4d7405011aa97e5215c1dc4c4d2e6b3ee949928d351d6e03c44e48ad"
+      "size_bytes": 1106,
+      "sha256": "c18986a39c2a27d04f70f1ad60a3cb95df6202056995afb40905643ddf5a3091"
     },
     {
       "path": "GITHUB_UPLOAD.md",
@@ -47,7 +42,7 @@
     {
       "path": "VERSION",
       "size_bytes": 7,
-      "sha256": "f87966285da0832df96612532e25b6dc834ae86a4b3aa7b82941f65b0a1a6f58"
+      "sha256": "3984285e92ba29f19a128d68785c8104705a588b5ec9bbc9a23efbe0c6efc37c"
     },
     {
       "path": "agents/openai.yaml",
@@ -72,12 +67,12 @@
     {
       "path": "config/settings.json",
       "size_bytes": 1443,
-      "sha256": "1c59ae0fa838869946e04caddce0b75744194dc754207058a1c290c692906ba3"
+      "sha256": "bf2e586743628849ca1b2062eb5e11dfdc1fcc1b82418cbdb2a97b1fd2685188"
     },
     {
       "path": "creator_hub/__init__.py",
       "size_bytes": 23,
-      "sha256": "acf00f7a0254d8d7091139933b4a87928e417d8bfb6806dc998ab45f66811b68"
+      "sha256": "8ce4a408e24148767d9ff7008f65fda61d96cc71804c64dce031d19711c4ed88"
     },
     {
       "path": "creator_hub/ai/__init__.py",
@@ -261,8 +256,8 @@
     },
     {
       "path": "creator_hub/static/metrics_workspace.js",
-      "size_bytes": 76883,
-      "sha256": "ad41107e317418c4a8067956535162b867188397c303a4407fea914c398273c1"
+      "size_bytes": 77874,
+      "sha256": "d2e47024267a72d9ec6da5140e5a6de37c761838b59f1ff4e3a6a3e87828dc40"
     },
     {
       "path": "creator_hub/static/overview_filters.js",

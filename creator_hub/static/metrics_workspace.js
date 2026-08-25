@@ -467,38 +467,47 @@ fetch('/api/ping').then(r=>r.ok?r.json():null).then(async x=>{interactive=!!x;if
 refreshFieldRegistry();document.getElementById('resultPageSize').value='30';document.getElementById('metricCatalogPageSize').value='30';document.getElementById('ruleCatalogPageSize').value='30';clearMetric();clearRule();renderAll();
 })();
 
-/* CDH V3.10.3 UI PATCH START */
+/* CDH V3.10.4 UI PATCH START */
 (()=>{
 'use strict';
-const PATCH='3.10.3';
-if(window.__CDH_V3103_UI_PATCH__) return;
-window.__CDH_V3103_UI_PATCH__=PATCH;
+const PATCH='3.10.4';
+if(window.__CDH_V3104_UI_PATCH__) return;
+window.__CDH_V3104_UI_PATCH__=PATCH;
 
 const CSS=`
-/* V3.10.3 · unified three-level condition UI across all Creator filter/rule surfaces */
-.metric-builder.v3103-grid{
+/* V3.10.4 · builder-natural-height anchor + constrained saved-list panels */
+.metric-builder.v3104-grid{
   display:grid!important;
   grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
-  grid-template-rows:auto auto!important;
+  grid-template-rows:max-content max-content!important;
   column-gap:20px!important;
   row-gap:16px!important;
-  align-items:stretch!important;
+  align-items:start!important;
 }
-.metric-builder.v3103-grid>div{display:contents!important}
-.metric-builder.v3103-grid #metrics-builder{grid-column:1;grid-row:1;margin:0!important}
-.metric-builder.v3103-grid #metrics-saved{grid-column:2;grid-row:1;margin:0!important}
-.metric-builder.v3103-grid #metrics-rule-builder{grid-column:1;grid-row:2;margin:0!important}
-.metric-builder.v3103-grid #metrics-rules{grid-column:2;grid-row:2;margin:0!important}
+.metric-builder.v3104-grid>div{display:contents!important}
+.metric-builder.v3104-grid #metrics-builder{grid-column:1;grid-row:1;margin:0!important}
+.metric-builder.v3104-grid #metrics-saved{grid-column:2;grid-row:1;margin:0!important}
+.metric-builder.v3104-grid #metrics-rule-builder{grid-column:1;grid-row:2;margin:0!important}
+.metric-builder.v3104-grid #metrics-rules{grid-column:2;grid-row:2;margin:0!important}
 
-#metrics-saved.v3103-scroll-panel,#metrics-rules.v3103-scroll-panel{
+#metrics-builder,#metrics-rule-builder{
+  align-self:start!important;
+  height:auto!important;
+  min-height:0!important;
+}
+#metrics-saved,#metrics-rules{
+  align-self:start!important;
+  min-height:0!important;
+}
+#metrics-saved.v3104-scroll-panel,#metrics-rules.v3104-scroll-panel{
   display:flex!important;
   flex-direction:column!important;
   min-height:0!important;
   overflow:hidden!important;
   box-sizing:border-box!important;
 }
-#metrics-saved.v3103-scroll-panel #metricList,
-#metrics-rules.v3103-scroll-panel #ruleList{
+#metrics-saved.v3104-scroll-panel #metricList,
+#metrics-rules.v3104-scroll-panel #ruleList{
   flex:1 1 auto!important;
   min-height:0!important;
   overflow-y:auto!important;
@@ -508,22 +517,22 @@ const CSS=`
   padding-right:4px;
   margin-bottom:0!important;
 }
-#metrics-saved.v3103-scroll-panel #metricList::-webkit-scrollbar,
-#metrics-rules.v3103-scroll-panel #ruleList::-webkit-scrollbar{width:9px}
-#metrics-saved.v3103-scroll-panel #metricList::-webkit-scrollbar-thumb,
-#metrics-rules.v3103-scroll-panel #ruleList::-webkit-scrollbar-thumb{background:rgba(100,116,139,.38);border-radius:999px}
+#metrics-saved.v3104-scroll-panel #metricList::-webkit-scrollbar,
+#metrics-rules.v3104-scroll-panel #ruleList::-webkit-scrollbar{width:9px}
+#metrics-saved.v3104-scroll-panel #metricList::-webkit-scrollbar-thumb,
+#metrics-rules.v3104-scroll-panel #ruleList::-webkit-scrollbar-thumb{background:rgba(100,116,139,.38);border-radius:999px}
 
 /* One condition = one row, shared by Rule Builder and Creator Library result filters. */
-#ruleConditions.v3103-condition-list,
-#resultFilterConditions.v3103-condition-list,
-#ovFilterConditions.v3103-condition-list{
+#ruleConditions.v3104-condition-list,
+#resultFilterConditions.v3104-condition-list,
+#ovFilterConditions.v3104-condition-list{
   display:flex!important;
   flex-direction:column!important;
   gap:10px!important;
 }
-#ruleConditions .condition-row.v3103-condition-row,
-#resultFilterConditions .condition-row.v3103-condition-row,
-#ovFilterConditions .condition-row.v3103-condition-row{
+#ruleConditions .condition-row.v3104-condition-row,
+#resultFilterConditions .condition-row.v3104-condition-row,
+#ovFilterConditions .condition-row.v3104-condition-row{
   width:100%!important;
   max-width:none!important;
   display:block!important;
@@ -532,50 +541,50 @@ const CSS=`
   overflow-x:auto;
   overflow-y:hidden;
 }
-#ruleConditions .v3103-condition-grid,
-#resultFilterConditions .v3103-condition-grid,
-#ovFilterConditions .v3103-condition-grid{
+#ruleConditions .v3104-condition-grid,
+#resultFilterConditions .v3104-condition-grid,
+#ovFilterConditions .v3104-condition-grid{
   width:100%;
   display:grid!important;
   align-items:center;
 }
-#ruleConditions .v3103-condition-grid{
+#ruleConditions .v3104-condition-grid{
   min-width:680px;
   grid-template-columns:56px minmax(100px,.78fr) minmax(112px,.9fr) minmax(138px,1.16fr) 96px minmax(104px,.74fr) 38px;
   gap:8px;
 }
-#ruleConditions .v3103-condition-grid.v3103-no-value{
+#ruleConditions .v3104-condition-grid.v3104-no-value{
   min-width:570px;
   grid-template-columns:56px minmax(100px,.78fr) minmax(112px,.9fr) minmax(138px,1.16fr) 106px 38px;
 }
-#resultFilterConditions .v3103-condition-grid,
-#ovFilterConditions .v3103-condition-grid{
+#resultFilterConditions .v3104-condition-grid,
+#ovFilterConditions .v3104-condition-grid{
   min-width:920px;
   grid-template-columns:72px minmax(140px,.8fr) minmax(160px,.95fr) minmax(210px,1.25fr) 112px minmax(140px,.85fr) 40px;
   gap:10px;
 }
-#resultFilterConditions .v3103-condition-grid.v3103-no-value,
-#ovFilterConditions .v3103-condition-grid.v3103-no-value{
+#resultFilterConditions .v3104-condition-grid.v3104-no-value,
+#ovFilterConditions .v3104-condition-grid.v3104-no-value{
   min-width:760px;
   grid-template-columns:72px minmax(140px,.8fr) minmax(160px,.95fr) minmax(210px,1.25fr) 122px 40px;
 }
-#ruleConditions .v3103-condition-grid>*,
-#resultFilterConditions .v3103-condition-grid>*,
-#ovFilterConditions .v3103-condition-grid>*{min-width:0!important;max-width:none!important;margin:0!important}
-#ruleConditions .v3103-condition-grid select,
-#ruleConditions .v3103-condition-grid input,
-#resultFilterConditions .v3103-condition-grid select,
-#resultFilterConditions .v3103-condition-grid input,
-#ovFilterConditions .v3103-condition-grid select,
-#ovFilterConditions .v3103-condition-grid input{
+#ruleConditions .v3104-condition-grid>*,
+#resultFilterConditions .v3104-condition-grid>*,
+#ovFilterConditions .v3104-condition-grid>*{min-width:0!important;max-width:none!important;margin:0!important}
+#ruleConditions .v3104-condition-grid select,
+#ruleConditions .v3104-condition-grid input,
+#resultFilterConditions .v3104-condition-grid select,
+#resultFilterConditions .v3104-condition-grid input,
+#ovFilterConditions .v3104-condition-grid select,
+#ovFilterConditions .v3104-condition-grid input{
   width:100%!important;
   height:42px!important;
   box-sizing:border-box!important;
 }
-.v3103-tier3-combo{position:relative;width:100%;min-width:0}
-.v3103-tier3-native{display:none!important}
-.v3103-tier3-input{padding-right:36px!important;text-overflow:ellipsis}
-.v3103-tier3-picker{
+.v3104-tier3-combo{position:relative;width:100%;min-width:0}
+.v3104-tier3-native{display:none!important}
+.v3104-tier3-input{padding-right:36px!important;text-overflow:ellipsis}
+.v3104-tier3-picker{
   position:absolute!important;right:1px!important;top:1px!important;bottom:1px!important;
   width:34px!important;min-width:34px!important;height:40px!important;
   padding:0!important;margin:0!important;border:0!important;
@@ -583,36 +592,36 @@ const CSS=`
   background:transparent!important;color:#64748b!important;
   display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer;
 }
-.v3103-lead{display:flex!important;align-items:center!important;min-height:42px;color:#64748b;white-space:nowrap}
-.v3103-delete{
+.v3104-lead{display:flex!important;align-items:center!important;min-height:42px;color:#64748b;white-space:nowrap}
+.v3104-delete{
   width:38px!important;min-width:38px!important;height:42px!important;padding:0!important;
   display:inline-flex!important;align-items:center!important;justify-content:center!important;
 }
-.v3103-hidden-legacy,.v3103-hidden-search{display:none!important}
-#metrics-results .builder-panel>.inline.v3103-result-toolbar{margin-top:12px!important;flex-wrap:wrap!important;gap:10px!important;align-items:center!important}
+.v3104-hidden-legacy,.v3104-hidden-search{display:none!important}
+#metrics-results .builder-panel>.inline.v3104-result-toolbar{margin-top:12px!important;flex-wrap:wrap!important;gap:10px!important;align-items:center!important}
 
 /* Main Creator Library: the deprecated stacked selector is fully retired too. */
 #ovFilterConditions{width:100%!important}
-#ovFilterConditions .condition-row.v3103-condition-row{overflow-x:auto!important}
-#ovFilterConditions .v3103-hidden-legacy,
-#ovFilterConditions .v3103-hidden-search{display:none!important}
+#ovFilterConditions .condition-row.v3104-condition-row{overflow-x:auto!important}
+#ovFilterConditions .v3104-hidden-legacy,
+#ovFilterConditions .v3104-hidden-search{display:none!important}
 
 @media(max-width:1050px){
-  .metric-builder.v3103-grid{display:block!important}
-  .metric-builder.v3103-grid>div{display:block!important}
-  .metric-builder.v3103-grid #metrics-builder,
-  .metric-builder.v3103-grid #metrics-saved,
-  .metric-builder.v3103-grid #metrics-rule-builder,
-  .metric-builder.v3103-grid #metrics-rules{height:auto!important;margin-top:16px!important}
-  .metric-builder.v3103-grid #metrics-builder{margin-top:0!important}
-  #metrics-saved.v3103-scroll-panel,#metrics-rules.v3103-scroll-panel{max-height:720px}
-  #metrics-saved.v3103-scroll-panel #metricList,#metrics-rules.v3103-scroll-panel #ruleList{max-height:560px}
+  .metric-builder.v3104-grid{display:block!important}
+  .metric-builder.v3104-grid>div{display:block!important}
+  .metric-builder.v3104-grid #metrics-builder,
+  .metric-builder.v3104-grid #metrics-saved,
+  .metric-builder.v3104-grid #metrics-rule-builder,
+  .metric-builder.v3104-grid #metrics-rules{height:auto!important;margin-top:16px!important}
+  .metric-builder.v3104-grid #metrics-builder{margin-top:0!important}
+  #metrics-saved.v3104-scroll-panel,#metrics-rules.v3104-scroll-panel{max-height:720px}
+  #metrics-saved.v3104-scroll-panel #metricList,#metrics-rules.v3104-scroll-panel #ruleList{max-height:560px}
 }
 `;
 
 function injectCss(){
-  if(document.getElementById('cdh-v3103-ui-style'))return;
-  const s=document.createElement('style');s.id='cdh-v3103-ui-style';s.textContent=CSS;document.head.appendChild(s);
+  if(document.getElementById('cdh-v3104-ui-style'))return;
+  const s=document.createElement('style');s.id='cdh-v3104-ui-style';s.textContent=CSS;document.head.appendChild(s);
 }
 
 let layoutBusy=false, pageSizeBusy=false;
@@ -621,11 +630,23 @@ function syncHeights(){
   const root=document.querySelector('.metric-builder');
   const mb=document.getElementById('metrics-builder'),ms=document.getElementById('metrics-saved'),rb=document.getElementById('metrics-rule-builder'),rs=document.getElementById('metrics-rules');
   if(!root||!mb||!ms||!rb||!rs)return;
-  root.classList.add('v3103-grid');ms.classList.add('v3103-scroll-panel');rs.classList.add('v3103-scroll-panel');
-  if(window.matchMedia('(max-width:1050px)').matches){ms.style.height='';rs.style.height='';return}
+  root.classList.add('v3104-grid');ms.classList.add('v3104-scroll-panel');rs.classList.add('v3104-scroll-panel');
+
+  // V3.10.4: Builder owns the row height. The list is never allowed to make
+  // the Builder taller. Clear list heights first, keep builders at natural
+  // height, measure them, then constrain the two list panels to those heights.
+  mb.style.height='auto';rb.style.height='auto';
+  mb.style.minHeight='0';rb.style.minHeight='0';
+  if(window.matchMedia('(max-width:1050px)').matches){
+    ms.style.height='';rs.style.height='';
+    return;
+  }
+
   ms.style.height='';rs.style.height='';
-  const h1=Math.ceil(mb.getBoundingClientRect().height),h2=Math.ceil(rb.getBoundingClientRect().height);
-  if(h1>0)ms.style.height=`${h1}px`;if(h2>0)rs.style.height=`${h2}px`;
+  const h1=Math.ceil(mb.scrollHeight || mb.getBoundingClientRect().height);
+  const h2=Math.ceil(rb.scrollHeight || rb.getBoundingClientRect().height);
+  if(h1>0)ms.style.height=`${h1}px`;
+  if(h2>0)rs.style.height=`${h2}px`;
 }
 
 function isBefore(a,b){return !!(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)}
@@ -644,7 +665,7 @@ function nativePageSizeControl(panel,list){
 }
 function forceTenPerPage(panelId,listId){
   const panel=document.getElementById(panelId),list=document.getElementById(listId);if(!panel||!list)return;
-  panel.classList.add('v3103-scroll-panel');
+  panel.classList.add('v3104-scroll-panel');
   const ctl=nativePageSizeControl(panel,list);if(!ctl)return;
   const old=String(ctl.input.value||'').trim();
   if(old==='10')return;
@@ -676,13 +697,13 @@ function isSearchControl(el){
 }
 function installSearchableTier3(native,grid){
   if(!native)return null;
-  let wrap=native.closest('.v3103-tier3-combo');if(wrap){grid.appendChild(wrap);return wrap}
-  wrap=document.createElement('div');wrap.className='v3103-tier3-combo v3103-l3';
-  const listId='v3103-tier3-'+Math.random().toString(36).slice(2,10);
-  const input=document.createElement('input');input.type='text';input.className='v3103-tier3-input';input.setAttribute('list',listId);input.setAttribute('autocomplete','off');input.placeholder='选择 / 搜索三级指标';
+  let wrap=native.closest('.v3104-tier3-combo');if(wrap){grid.appendChild(wrap);return wrap}
+  wrap=document.createElement('div');wrap.className='v3104-tier3-combo v3104-l3';
+  const listId='v3104-tier3-'+Math.random().toString(36).slice(2,10);
+  const input=document.createElement('input');input.type='text';input.className='v3104-tier3-input';input.setAttribute('list',listId);input.setAttribute('autocomplete','off');input.placeholder='选择 / 搜索三级指标';
   const dl=document.createElement('datalist');dl.id=listId;
-  const picker=document.createElement('button');picker.type='button';picker.className='v3103-tier3-picker';picker.title='展开 / 搜索三级指标';picker.setAttribute('aria-label','展开 / 搜索三级指标');picker.textContent='⌄';
-  native.classList.add('v3103-tier3-native');wrap.appendChild(native);wrap.appendChild(input);wrap.appendChild(dl);wrap.appendChild(picker);grid.appendChild(wrap);
+  const picker=document.createElement('button');picker.type='button';picker.className='v3104-tier3-picker';picker.title='展开 / 搜索三级指标';picker.setAttribute('aria-label','展开 / 搜索三级指标');picker.textContent='⌄';
+  native.classList.add('v3104-tier3-native');wrap.appendChild(native);wrap.appendChild(input);wrap.appendChild(dl);wrap.appendChild(picker);grid.appendChild(wrap);
   const options=()=>[...native.options].filter(o=>!o.disabled&&String(o.value||'')!=='');
   const labelOf=()=>native.selectedOptions?.[0]?.textContent?.trim()||'';
   const sync=()=>{const opts=options();dl.innerHTML='';opts.forEach(o=>{const x=document.createElement('option');x.value=(o.textContent||'').trim();dl.appendChild(x)});input.value=labelOf();input.disabled=native.disabled||opts.length===0;picker.disabled=input.disabled};
@@ -694,60 +715,65 @@ function installSearchableTier3(native,grid){
 function findLead(row,join){if(join)return join;return [...row.querySelectorAll('span,div,label')].find(x=>x.children.length===0&&(x.textContent||'').trim()==='起始')||null}
 function compactConditionRow(row){
   if(!row||!row.classList?.contains('condition-row'))return;
-  let grid=row.querySelector(':scope > .v3103-condition-grid');
-  if(row.dataset.v3103Compacted==='1'&&grid){syncValueMode(row,grid);return}
+  let grid=row.querySelector(':scope > .v3104-condition-grid');
+  if(row.dataset.v3104Compacted==='1'&&grid){syncValueMode(row,grid);return}
   const selects=[...row.querySelectorAll('select')];if(!selects.length)return;
   const join=selects.find(isJoinSelect)||null,op=selects.find(s=>s!==join&&isOperatorSelect(s))||null;
   const candidates=selects.filter(s=>s!==join&&s!==op);if(candidates.length<3)return;
-  const levels=candidates.slice(-3),legacy=candidates.slice(0,-3);legacy.forEach(x=>x.classList.add('v3103-hidden-legacy'));
+  const levels=candidates.slice(-3),legacy=candidates.slice(0,-3);legacy.forEach(x=>x.classList.add('v3104-hidden-legacy'));
   const buttons=[...row.querySelectorAll('button')],del=buttons.find(isDeleteButton)||buttons.at(-1)||null;
-  buttons.filter(b=>b!==del&&isSearchControl(b)).forEach(b=>b.classList.add('v3103-hidden-search'));
-  [...row.querySelectorAll('input')].filter(isSearchControl).forEach(x=>x.classList.add('v3103-hidden-search'));
-  const value=[...row.querySelectorAll('input')].find(x=>!x.classList.contains('v3103-hidden-search')&&(x.classList.contains('c-value')||['number','text'].includes((x.type||'text').toLowerCase())))||null;
+  buttons.filter(b=>b!==del&&isSearchControl(b)).forEach(b=>b.classList.add('v3104-hidden-search'));
+  [...row.querySelectorAll('input')].filter(isSearchControl).forEach(x=>x.classList.add('v3104-hidden-search'));
+  const value=[...row.querySelectorAll('input')].find(x=>!x.classList.contains('v3104-hidden-search')&&(x.classList.contains('c-value')||['number','text'].includes((x.type||'text').toLowerCase())))||null;
   const lead=findLead(row,join);
-  if(!grid){grid=document.createElement('div');grid.className='v3103-condition-grid';row.prepend(grid)}
+  if(!grid){grid=document.createElement('div');grid.className='v3104-condition-grid';row.prepend(grid)}
   const move=(el,cls)=>{if(!el)return;el.classList.add(cls);grid.appendChild(el)};
-  move(lead,'v3103-lead');move(levels[0],'v3103-l1');move(levels[1],'v3103-l2');installSearchableTier3(levels[2],grid);move(op,'v3103-op');move(value,'v3103-value');move(del,'v3103-delete');
-  row.classList.add('v3103-condition-row');row.dataset.v3103Compacted='1';
+  move(lead,'v3104-lead');move(levels[0],'v3104-l1');move(levels[1],'v3104-l2');installSearchableTier3(levels[2],grid);move(op,'v3104-op');move(value,'v3104-value');move(del,'v3104-delete');
+  row.classList.add('v3104-condition-row');row.dataset.v3104Compacted='1';
   const sync=()=>requestAnimationFrame(()=>syncValueMode(row,grid));
   selects.forEach(s=>s.addEventListener('change',sync));
   new MutationObserver(sync).observe(row,{attributes:true,subtree:true,attributeFilter:['style','class']});
   syncValueMode(row,grid);
 }
 function syncValueMode(row,grid){
-  const value=row.querySelector('.v3103-value');
+  const value=row.querySelector('.v3104-value');
   const hidden=!value||value.style.display==='none'||getComputedStyle(value).display==='none';
-  grid.classList.toggle('v3103-no-value',hidden);
+  grid.classList.toggle('v3104-no-value',hidden);
 }
 function compactConditionBox(id){
-  const box=document.getElementById(id);if(!box)return;box.classList.add('v3103-condition-list');[...box.children].forEach(compactConditionRow);
+  const box=document.getElementById(id);if(!box)return;box.classList.add('v3104-condition-list');[...box.children].forEach(compactConditionRow);
 }
 function compactAllConditions(){
   compactConditionBox('ruleConditions');compactConditionBox('resultFilterConditions');compactConditionBox('ovFilterConditions');
   ['ruleConditions','resultFilterConditions','ovFilterConditions'].forEach(id=>{
     const box=document.getElementById(id);if(!box)return;
-    box.querySelectorAll('button').forEach(b=>{if((b.textContent||'').trim()==='搜索'&&b.closest('.condition-row'))b.classList.add('v3103-hidden-search')});
+    box.querySelectorAll('button').forEach(b=>{if((b.textContent||'').trim()==='搜索'&&b.closest('.condition-row'))b.classList.add('v3104-hidden-search')});
   });
   const rbox=document.getElementById('resultFilterConditions'),panel=rbox?.closest('.builder-panel');
-  if(panel)[...panel.children].forEach(x=>{if(x.classList?.contains('inline')&&x!==rbox)x.classList.add('v3103-result-toolbar')});
+  if(panel)[...panel.children].forEach(x=>{if(x.classList?.contains('inline')&&x!==rbox)x.classList.add('v3104-result-toolbar')});
 }
 
 function observe(){
   const metricList=document.getElementById('metricList'),ruleList=document.getElementById('ruleList');
-  if(metricList&&!metricList.__v3103Observed){metricList.__v3103Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{metricList.scrollTop=0},0)}).observe(metricList,{childList:true})}
-  if(ruleList&&!ruleList.__v3103Observed){ruleList.__v3103Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{ruleList.scrollTop=0},0)}).observe(ruleList,{childList:true})}
+  const mb=document.getElementById('metrics-builder'),rb=document.getElementById('metrics-rule-builder');
+  if(window.ResizeObserver){
+    if(mb&&!mb.__v3104ResizeObserved){mb.__v3104ResizeObserved=true;new ResizeObserver(scheduleSyncHeights).observe(mb)}
+    if(rb&&!rb.__v3104ResizeObserved){rb.__v3104ResizeObserved=true;new ResizeObserver(scheduleSyncHeights).observe(rb)}
+  }
+  if(metricList&&!metricList.__v3104Observed){metricList.__v3104Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{metricList.scrollTop=0},0)}).observe(metricList,{childList:true})}
+  if(ruleList&&!ruleList.__v3104Observed){ruleList.__v3104Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{ruleList.scrollTop=0},0)}).observe(ruleList,{childList:true})}
   ['ruleConditions','resultFilterConditions','ovFilterConditions'].forEach(id=>{
-    const box=document.getElementById(id);if(box&&!box.__v3103Observed){box.__v3103Observed=true;new MutationObserver(()=>requestAnimationFrame(compactAllConditions)).observe(box,{childList:true,subtree:true})}
+    const box=document.getElementById(id);if(box&&!box.__v3104Observed){box.__v3104Observed=true;new MutationObserver(()=>requestAnimationFrame(compactAllConditions)).observe(box,{childList:true,subtree:true})}
   });
 }
 
 function boot(){
   injectCss();
-  const root=document.querySelector('.metric-builder');if(root)root.classList.add('v3103-grid');
+  const root=document.querySelector('.metric-builder');if(root)root.classList.add('v3104-grid');
   compactAllConditions();observe();configureNativePagination();syncHeights();
   window.addEventListener('resize',scheduleSyncHeights,{passive:true});
   [80,250,700,1500,3000].forEach(ms=>setTimeout(()=>{compactAllConditions();observe();configureNativePagination();syncHeights()},ms));
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
-/* CDH V3.10.3 UI PATCH END */
+/* CDH V3.10.4 UI PATCH END */
