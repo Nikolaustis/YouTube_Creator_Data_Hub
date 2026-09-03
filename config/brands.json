@@ -1,5 +1,5 @@
 {
-  "rule_version": "-scene-separated",
+  "rule_version": "0.2.0-scene-separated",
   "classification": {
     "cta_terms": [
       "download",

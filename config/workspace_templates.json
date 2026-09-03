@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "templates": [
+    {
+      "id": "blank",
+      "name": "Blank Workspace",
+      "name_zh": "空白工作区",
+      "description_zh": "不预置品牌、标签和商业指标，只保留通用 Creator / Video 数据能力。",
+      "brands": [], "brand_groups": [], "taxonomies": [], "business_metrics": [], "discovery_profiles": [], "presets": []
+    },
+    {
+      "id": "brand_influencer",
+      "name": "Brand / Influencer Marketing",
+      "name_zh": "品牌 / 达人营销",
+      "description_zh": "适合品牌合作、达人关系管理、内容表现和品牌安全分析。",
+      "brands": [],
+      "brand_groups": [{"key":"own_brands","name":"自有品牌"},{"key":"competitors","name":"竞品"},{"key":"partners","name":"合作品牌"}],
+      "taxonomies": [{"key":"commercial_intent","name":"商业意图","entity_type":"video","multi_select":false,"labels":[{"key":"sponsored","name":"商业合作"},{"key":"organic","name":"自然内容"},{"key":"review","name":"待复核"}]}],
+      "business_metrics": [{"key":"revenue","name":"Revenue","value_type":"currency","unit":"currency","currency":"USD","aggregation":"sum"},{"key":"orders","name":"Orders","value_type":"number","unit":"orders","aggregation":"sum"}],
+      "discovery_profiles": [], "presets": []
+    },
+    {
+      "id": "affiliate_performance",
+      "name": "Affiliate / Performance Marketing",
+      "name_zh": "联盟 / 效果营销",
+      "description_zh": "适合 GMV、订单、拉新、安装、转化等效果型 Creator 项目。",
+      "brands": [],
+      "brand_groups": [{"key":"own_brands","name":"自有品牌"},{"key":"competitors","name":"竞品"}],
+      "taxonomies": [{"key":"commercial_intent","name":"商业意图","entity_type":"video","multi_select":false,"labels":[{"key":"conversion","name":"转化导向"},{"key":"awareness","name":"品牌曝光"},{"key":"organic","name":"自然内容"},{"key":"review","name":"待复核"}]}],
+      "business_metrics": [{"key":"gmv","name":"GMV","value_type":"currency","unit":"currency","currency":"USD","aggregation":"sum"},{"key":"new_users","name":"New Users","value_type":"number","unit":"users","aggregation":"sum"},{"key":"orders","name":"Orders","value_type":"number","unit":"orders","aggregation":"sum"},{"key":"installs","name":"Installs","value_type":"number","unit":"installs","aggregation":"sum"}],
+      "discovery_profiles": [], "presets": []
+    },
+    {
+      "id": "gaming_creator",
+      "name": "Gaming Creator Discovery",
+      "name_zh": "游戏 Creator 发现",
+      "description_zh": "适合游戏 Creator 发现、玩法内容分类和持续制作判断。",
+      "brands": [], "brand_groups": [],
+      "taxonomies": [{"key":"content_type","name":"内容类型","entity_type":"video","multi_select":true,"labels":[{"key":"gameplay","name":"Gameplay"},{"key":"tutorial","name":"攻略 / 教程"},{"key":"review","name":"评测"},{"key":"livestream","name":"直播"},{"key":"shorts","name":"Shorts"}]}],
+      "business_metrics": [],
+      "discovery_profiles": [{"key":"gaming_general","name":"Gaming General","profile":{"positive_terms":["gameplay","guide","tutorial","how to"],"exclude_official_channels":true}}],
+      "presets": []
+    },
+    {
+      "id": "cloud_phone_growth",
+      "name": "Cloud Phone Growth",
+      "name_zh": "云手机增长",
+      "description_zh": "V3.x 云手机业务的兼容 Workspace。UgPhone、竞品、原有分类和商业指标被保留为 Workspace 配置，而不是 Core 语义。",
+      "compatibility_profile": "cloud_phone_v1",
+      "primary_brand_key": "ugphone",
+      "brands": [{"key":"ugphone","name":"UgPhone","role":"primary"},{"key":"ldcloud","name":"LDCloud","role":"competitor"},{"key":"redfinger","name":"RedFinger","role":"competitor"},{"key":"vsphone","name":"VSPhone","role":"competitor"}],
+      "brand_groups": [{"key":"own_brands","name":"自有品牌","members":["ugphone"]},{"key":"competitors","name":"竞品","members":["ldcloud","redfinger","vsphone"]}],
+      "taxonomies": [{"key":"content_relationship","name":"品牌内容关系","entity_type":"video","multi_select":false,"labels":[{"key":"own_brand","name":"自有品牌内容"},{"key":"competitor","name":"竞品内容"},{"key":"multi_brand","name":"多品牌内容"},{"key":"organic","name":"日常 / 自然内容"},{"key":"other_brand","name":"其他同类品牌内容"},{"key":"review","name":"待复核"}]}],
+      "creator_relationships": [{"key":"partner","name":"合作"},{"key":"former_partner","name":"历史合作"},{"key":"prospect","name":"潜在合作"}],
+      "business_metrics": [{"key":"gmv","name":"GMV","value_type":"currency","unit":"currency","currency":"USD","aggregation":"sum"},{"key":"new_users","name":"New Users","value_type":"number","unit":"users","aggregation":"sum"}],
+      "discovery_profiles": [{"key":"cloud_phone_growth","name":"Cloud Phone Growth","profile":{"positive_terms":["cloud phone","cloudphone","android cloud","云手机","AFK","auto farm","multi-instance","24/7"],"exclude_official_channels":true}}],
+      "presets": [{"type":"rule","key":"high_competitor_traffic","name":"高流量竞品博主"},{"type":"rule","key":"high_partner_traffic","name":"高流量合作博主"}]
+    }
+  ]
+}
