@@ -467,16 +467,16 @@ fetch('/api/ping').then(r=>r.ok?r.json():null).then(async x=>{interactive=!!x;if
 refreshFieldRegistry();document.getElementById('resultPageSize').value='30';document.getElementById('metricCatalogPageSize').value='30';document.getElementById('ruleCatalogPageSize').value='30';clearMetric();clearRule();renderAll();
 })();
 
-/* CDH V3.10.4 UI PATCH START */
+/* CDH V3.10.7 UI PATCH START */
 (()=>{
 'use strict';
-const PATCH='3.10.4';
-if(window.__CDH_V3104_UI_PATCH__) return;
-window.__CDH_V3104_UI_PATCH__=PATCH;
+const PATCH='3.10.7';
+if(window.__CDH_V3107_UI_PATCH__) return;
+window.__CDH_V3107_UI_PATCH__=PATCH;
 
 const CSS=`
-/* V3.10.4 · builder-natural-height anchor + constrained saved-list panels */
-.metric-builder.v3104-grid{
+/* V3.10.7 · non-shrinking three-row condition viewport + frozen rule shell */
+.metric-builder.v3107-grid{
   display:grid!important;
   grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
   grid-template-rows:max-content max-content!important;
@@ -484,30 +484,193 @@ const CSS=`
   row-gap:16px!important;
   align-items:start!important;
 }
-.metric-builder.v3104-grid>div{display:contents!important}
-.metric-builder.v3104-grid #metrics-builder{grid-column:1;grid-row:1;margin:0!important}
-.metric-builder.v3104-grid #metrics-saved{grid-column:2;grid-row:1;margin:0!important}
-.metric-builder.v3104-grid #metrics-rule-builder{grid-column:1;grid-row:2;margin:0!important}
-.metric-builder.v3104-grid #metrics-rules{grid-column:2;grid-row:2;margin:0!important}
+.metric-builder.v3107-grid>div{display:contents!important}
+.metric-builder.v3107-grid #metrics-builder{grid-column:1;grid-row:1;margin:0!important}
+.metric-builder.v3107-grid #metrics-saved{grid-column:2;grid-row:1;margin:0!important}
+.metric-builder.v3107-grid #metrics-rule-builder{grid-column:1;grid-row:2;margin:0!important}
+.metric-builder.v3107-grid #metrics-rules{grid-column:2;grid-row:2;margin:0!important}
 
 #metrics-builder,#metrics-rule-builder{
   align-self:start!important;
   height:auto!important;
   min-height:0!important;
 }
+/* V3.10.7: stable Rule shell derived from the real structured content.
+   Conditions are the ONLY growing content, and they grow inside a fixed scroll viewport. */
+#metrics-rule-builder{
+  --v3107-condition-row-height:46px;
+  --v3107-condition-gap:8px;
+  --v3107-condition-viewport-height:154px;
+  height:auto!important;
+  min-height:0!important;
+  max-height:none!important;
+  padding-bottom:18px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+  box-sizing:border-box!important;
+}
+#metrics-rule-builder>h2{margin-bottom:16px!important;flex:0 0 auto!important}
+#metrics-rule-builder .form-row{
+  margin-bottom:12px!important;
+  flex:0 0 auto!important;
+}
+#metrics-rule-builder .form-row.top{align-items:flex-start!important}
+#metrics-rule-builder #ruleDescription{
+  height:76px!important;
+  min-height:76px!important;
+  max-height:76px!important;
+  resize:none!important;
+}
+#metrics-rule-builder .v3107-condition-section{
+  margin-top:4px!important;
+  padding-top:12px!important;
+  border-top:1px solid rgba(148,163,184,.28)!important;
+  flex:0 0 auto!important;
+  min-height:0!important;
+  overflow:visible!important;
+}
+#metrics-rule-builder .v3107-condition-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+  margin-bottom:10px!important;
+  flex:0 0 auto!important;
+}
+#metrics-rule-builder .v3107-condition-title{
+  font-weight:700;
+  font-size:13px;
+  color:#334155;
+}
+#metrics-rule-builder .v3107-condition-hint{
+  font-size:12px;
+  color:#64748b;
+}
+
+/* This is the single scroll viewport.
+   It always reserves a vertical scrollbar gutter and shows ~3 full conditions. */
+#metrics-rule-builder #ruleConditions{
+  height:var(--v3107-condition-viewport-height)!important;
+  min-height:var(--v3107-condition-viewport-height)!important;
+  max-height:var(--v3107-condition-viewport-height)!important;
+  margin:0!important;
+  padding:0 8px 0 0!important;
+  display:flex!important;
+  flex-direction:column!important;
+  gap:var(--v3107-condition-gap)!important;
+  overflow-y:scroll!important;
+  overflow-x:auto!important;
+  overscroll-behavior:contain!important;
+  scrollbar-gutter:stable!important;
+  box-sizing:border-box!important;
+}
+#metrics-rule-builder #ruleConditions::-webkit-scrollbar{width:10px;height:8px}
+#metrics-rule-builder #ruleConditions::-webkit-scrollbar-track{
+  background:rgba(148,163,184,.10);
+  border-radius:999px;
+}
+#metrics-rule-builder #ruleConditions::-webkit-scrollbar-thumb{
+  background:rgba(100,116,139,.48);
+  border-radius:999px;
+}
+
+/* Critical fix: condition rows must NEVER shrink to fit the viewport. */
+#metrics-rule-builder #ruleConditions>.condition-row.v3107-condition-row{
+  flex:0 0 var(--v3107-condition-row-height)!important;
+  min-height:var(--v3107-condition-row-height)!important;
+  height:var(--v3107-condition-row-height)!important;
+  max-height:var(--v3107-condition-row-height)!important;
+  width:100%!important;
+  min-width:610px!important;
+  overflow:visible!important;
+  padding:0!important;
+  margin:0!important;
+  box-sizing:border-box!important;
+}
+#metrics-rule-builder #ruleConditions .v3107-condition-grid{
+  min-width:610px!important;
+  height:42px!important;
+  grid-template-columns:52px minmax(96px,.78fr) minmax(106px,.88fr) minmax(132px,1.1fr) 88px minmax(88px,.72fr) 34px!important;
+  gap:6px!important;
+}
+#metrics-rule-builder #ruleConditions .v3107-condition-grid.v3107-no-value{
+  min-width:560px!important;
+  grid-template-columns:52px minmax(100px,.8fr) minmax(110px,.9fr) minmax(140px,1.12fr) 98px 34px!important;
+  gap:6px!important;
+}
+
+/* Add / save controls follow the viewport immediately; no filler gap. */
+#metrics-rule-builder .v3107-add-condition-row{
+  margin-top:10px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  flex:0 0 auto!important;
+}
+#metrics-rule-builder .v3107-rule-footer{
+  margin-top:10px!important;
+  padding-top:12px!important;
+  border-top:1px solid rgba(148,163,184,.22)!important;
+  flex:0 0 auto!important;
+}
+#metrics-rule-builder .v3107-rule-actions{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  gap:10px!important;
+  align-items:center!important;
+  margin-bottom:8px!important;
+}
+#metrics-rule-builder .v3107-rule-note{
+  line-height:1.45!important;
+  color:#64748b!important;
+}
+
+/* The Rule List shell is frozen to the measured Rule Builder shell height.
+   Cards remain natural height; only ruleList scrolls. */
+#metrics-rules.v3107-scroll-panel{
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+  box-sizing:border-box!important;
+}
+#metrics-rules.v3107-scroll-panel #ruleList{
+  flex:1 1 0!important;
+  min-height:0!important;
+  height:auto!important;
+  overflow-y:scroll!important;
+  overflow-x:hidden!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:stretch!important;
+  justify-content:flex-start!important;
+  align-content:flex-start!important;
+  gap:10px!important;
+  scrollbar-gutter:stable!important;
+}
+#metrics-rules.v3107-scroll-panel #ruleList>*{
+  flex:0 0 auto!important;
+  flex-grow:0!important;
+  flex-shrink:0!important;
+  height:auto!important;
+  min-height:0!important;
+  max-height:none!important;
+  align-self:stretch!important;
+}
+
 #metrics-saved,#metrics-rules{
   align-self:start!important;
   min-height:0!important;
 }
-#metrics-saved.v3104-scroll-panel,#metrics-rules.v3104-scroll-panel{
+#metrics-saved.v3107-scroll-panel,#metrics-rules.v3107-scroll-panel{
   display:flex!important;
   flex-direction:column!important;
   min-height:0!important;
   overflow:hidden!important;
   box-sizing:border-box!important;
 }
-#metrics-saved.v3104-scroll-panel #metricList,
-#metrics-rules.v3104-scroll-panel #ruleList{
+#metrics-saved.v3107-scroll-panel #metricList,
+#metrics-rules.v3107-scroll-panel #ruleList{
   flex:1 1 auto!important;
   min-height:0!important;
   overflow-y:auto!important;
@@ -517,74 +680,80 @@ const CSS=`
   padding-right:4px;
   margin-bottom:0!important;
 }
-#metrics-saved.v3104-scroll-panel #metricList::-webkit-scrollbar,
-#metrics-rules.v3104-scroll-panel #ruleList::-webkit-scrollbar{width:9px}
-#metrics-saved.v3104-scroll-panel #metricList::-webkit-scrollbar-thumb,
-#metrics-rules.v3104-scroll-panel #ruleList::-webkit-scrollbar-thumb{background:rgba(100,116,139,.38);border-radius:999px}
+#metrics-saved.v3107-scroll-panel #metricList::-webkit-scrollbar,
+#metrics-rules.v3107-scroll-panel #ruleList::-webkit-scrollbar{width:9px}
+#metrics-saved.v3107-scroll-panel #metricList::-webkit-scrollbar-thumb,
+#metrics-rules.v3107-scroll-panel #ruleList::-webkit-scrollbar-thumb{background:rgba(100,116,139,.38);border-radius:999px}
 
 /* One condition = one row, shared by Rule Builder and Creator Library result filters. */
-#ruleConditions.v3104-condition-list,
-#resultFilterConditions.v3104-condition-list,
-#ovFilterConditions.v3104-condition-list{
+#ruleConditions.v3107-condition-list,
+#resultFilterConditions.v3107-condition-list,
+#ovFilterConditions.v3107-condition-list{
   display:flex!important;
   flex-direction:column!important;
   gap:10px!important;
 }
-#ruleConditions .condition-row.v3104-condition-row,
-#resultFilterConditions .condition-row.v3104-condition-row,
-#ovFilterConditions .condition-row.v3104-condition-row{
+#ruleConditions .condition-row.v3107-condition-row,
+#resultFilterConditions .condition-row.v3107-condition-row,
+#ovFilterConditions .condition-row.v3107-condition-row{
   width:100%!important;
   max-width:none!important;
   display:block!important;
   margin:0!important;
   padding:0 0 2px 0!important;
+}
+#ruleConditions .condition-row.v3107-condition-row{
+  overflow:visible!important;
+}
+#resultFilterConditions .condition-row.v3107-condition-row,
+#ovFilterConditions .condition-row.v3107-condition-row{
   overflow-x:auto;
   overflow-y:hidden;
 }
-#ruleConditions .v3104-condition-grid,
-#resultFilterConditions .v3104-condition-grid,
-#ovFilterConditions .v3104-condition-grid{
+#ruleConditions .v3107-condition-grid,
+#resultFilterConditions .v3107-condition-grid,
+#ovFilterConditions .v3107-condition-grid{
   width:100%;
   display:grid!important;
   align-items:center;
 }
-#ruleConditions .v3104-condition-grid{
+#ruleConditions .v3107-condition-grid{
   min-width:680px;
   grid-template-columns:56px minmax(100px,.78fr) minmax(112px,.9fr) minmax(138px,1.16fr) 96px minmax(104px,.74fr) 38px;
   gap:8px;
 }
-#ruleConditions .v3104-condition-grid.v3104-no-value{
+#ruleConditions .v3107-condition-grid.v3107-no-value{
   min-width:570px;
   grid-template-columns:56px minmax(100px,.78fr) minmax(112px,.9fr) minmax(138px,1.16fr) 106px 38px;
 }
-#resultFilterConditions .v3104-condition-grid,
-#ovFilterConditions .v3104-condition-grid{
+#resultFilterConditions .v3107-condition-grid,
+#ovFilterConditions .v3107-condition-grid{
   min-width:920px;
   grid-template-columns:72px minmax(140px,.8fr) minmax(160px,.95fr) minmax(210px,1.25fr) 112px minmax(140px,.85fr) 40px;
   gap:10px;
 }
-#resultFilterConditions .v3104-condition-grid.v3104-no-value,
-#ovFilterConditions .v3104-condition-grid.v3104-no-value{
+#resultFilterConditions .v3107-condition-grid.v3107-no-value,
+#ovFilterConditions .v3107-condition-grid.v3107-no-value{
   min-width:760px;
   grid-template-columns:72px minmax(140px,.8fr) minmax(160px,.95fr) minmax(210px,1.25fr) 122px 40px;
 }
-#ruleConditions .v3104-condition-grid>*,
-#resultFilterConditions .v3104-condition-grid>*,
-#ovFilterConditions .v3104-condition-grid>*{min-width:0!important;max-width:none!important;margin:0!important}
-#ruleConditions .v3104-condition-grid select,
-#ruleConditions .v3104-condition-grid input,
-#resultFilterConditions .v3104-condition-grid select,
-#resultFilterConditions .v3104-condition-grid input,
-#ovFilterConditions .v3104-condition-grid select,
-#ovFilterConditions .v3104-condition-grid input{
+#ruleConditions .v3107-condition-grid>*,
+#resultFilterConditions .v3107-condition-grid>*,
+#ovFilterConditions .v3107-condition-grid>*{min-width:0!important;max-width:none!important;margin:0!important}
+#ruleConditions .v3107-condition-grid select,
+#ruleConditions .v3107-condition-grid input,
+#resultFilterConditions .v3107-condition-grid select,
+#resultFilterConditions .v3107-condition-grid input,
+#ovFilterConditions .v3107-condition-grid select,
+#ovFilterConditions .v3107-condition-grid input{
   width:100%!important;
   height:42px!important;
   box-sizing:border-box!important;
 }
-.v3104-tier3-combo{position:relative;width:100%;min-width:0}
-.v3104-tier3-native{display:none!important}
-.v3104-tier3-input{padding-right:36px!important;text-overflow:ellipsis}
-.v3104-tier3-picker{
+.v3107-tier3-combo{position:relative;width:100%;min-width:0}
+.v3107-tier3-native{display:none!important}
+.v3107-tier3-input{padding-right:36px!important;text-overflow:ellipsis}
+.v3107-tier3-picker{
   position:absolute!important;right:1px!important;top:1px!important;bottom:1px!important;
   width:34px!important;min-width:34px!important;height:40px!important;
   padding:0!important;margin:0!important;border:0!important;
@@ -592,63 +761,116 @@ const CSS=`
   background:transparent!important;color:#64748b!important;
   display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer;
 }
-.v3104-lead{display:flex!important;align-items:center!important;min-height:42px;color:#64748b;white-space:nowrap}
-.v3104-delete{
+.v3107-lead{display:flex!important;align-items:center!important;min-height:42px;color:#64748b;white-space:nowrap}
+.v3107-delete{
   width:38px!important;min-width:38px!important;height:42px!important;padding:0!important;
   display:inline-flex!important;align-items:center!important;justify-content:center!important;
 }
-.v3104-hidden-legacy,.v3104-hidden-search{display:none!important}
-#metrics-results .builder-panel>.inline.v3104-result-toolbar{margin-top:12px!important;flex-wrap:wrap!important;gap:10px!important;align-items:center!important}
+.v3107-hidden-legacy,.v3107-hidden-search{display:none!important}
+#metrics-results .builder-panel>.inline.v3107-result-toolbar{margin-top:12px!important;flex-wrap:wrap!important;gap:10px!important;align-items:center!important}
 
 /* Main Creator Library: the deprecated stacked selector is fully retired too. */
 #ovFilterConditions{width:100%!important}
-#ovFilterConditions .condition-row.v3104-condition-row{overflow-x:auto!important}
-#ovFilterConditions .v3104-hidden-legacy,
-#ovFilterConditions .v3104-hidden-search{display:none!important}
+#ovFilterConditions .condition-row.v3107-condition-row{overflow-x:auto!important}
+#ovFilterConditions .v3107-hidden-legacy,
+#ovFilterConditions .v3107-hidden-search{display:none!important}
 
+
+/* Rule card anti-stretch safety. */
+.metric-builder.v3107-grid #metrics-rules.v3107-scroll-panel #ruleList>*{
+  flex:0 0 auto!important;
+  height:auto!important;
+}
 @media(max-width:1050px){
-  .metric-builder.v3104-grid{display:block!important}
-  .metric-builder.v3104-grid>div{display:block!important}
-  .metric-builder.v3104-grid #metrics-builder,
-  .metric-builder.v3104-grid #metrics-saved,
-  .metric-builder.v3104-grid #metrics-rule-builder,
-  .metric-builder.v3104-grid #metrics-rules{height:auto!important;margin-top:16px!important}
-  .metric-builder.v3104-grid #metrics-builder{margin-top:0!important}
-  #metrics-saved.v3104-scroll-panel,#metrics-rules.v3104-scroll-panel{max-height:720px}
-  #metrics-saved.v3104-scroll-panel #metricList,#metrics-rules.v3104-scroll-panel #ruleList{max-height:560px}
+  .metric-builder.v3107-grid{display:block!important}
+  .metric-builder.v3107-grid>div{display:block!important}
+  .metric-builder.v3107-grid #metrics-builder,
+  .metric-builder.v3107-grid #metrics-saved,
+  .metric-builder.v3107-grid #metrics-rule-builder,
+  .metric-builder.v3107-grid #metrics-rules{height:auto!important;margin-top:16px!important}
+  .metric-builder.v3107-grid #metrics-rule-builder,
+  .metric-builder.v3107-grid #metrics-rules{
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:visible!important;
+  }
+  .metric-builder.v3107-grid #metrics-rule-builder #ruleConditions{
+    height:154px!important;
+    min-height:154px!important;
+    max-height:154px!important;
+    overflow-y:scroll!important;
+    overflow-x:auto!important;
+  }
+  .metric-builder.v3107-grid #metrics-builder{margin-top:0!important}
+  #metrics-saved.v3107-scroll-panel,#metrics-rules.v3107-scroll-panel{max-height:720px}
+  #metrics-saved.v3107-scroll-panel #metricList,#metrics-rules.v3107-scroll-panel #ruleList{max-height:560px}
 }
 `;
 
 function injectCss(){
-  if(document.getElementById('cdh-v3104-ui-style'))return;
-  const s=document.createElement('style');s.id='cdh-v3104-ui-style';s.textContent=CSS;document.head.appendChild(s);
+  if(document.getElementById('cdh-v3107-ui-style'))return;
+  const s=document.createElement('style');s.id='cdh-v3107-ui-style';s.textContent=CSS;document.head.appendChild(s);
 }
 
 let layoutBusy=false, pageSizeBusy=false;
 function scheduleSyncHeights(){if(layoutBusy)return;layoutBusy=true;requestAnimationFrame(()=>{layoutBusy=false;syncHeights()})}
+let frozenRuleShellHeight=0;
+function measureAndFreezeRuleShell(){
+  const rb=document.getElementById('metrics-rule-builder'),rs=document.getElementById('metrics-rules');
+  if(!rb||!rs)return 0;
+  const mobile=window.matchMedia('(max-width:1050px)').matches;
+  if(mobile){
+    frozenRuleShellHeight=0;
+    rb.style.height='';rb.style.minHeight='';rb.style.maxHeight='';
+    rs.style.height='';rs.style.minHeight='';rs.style.maxHeight='';
+    return 0;
+  }
+
+  // Measure the structured builder with the condition viewport already fixed.
+  // Condition count therefore cannot change this measurement.
+  rb.style.height='auto';rb.style.minHeight='0';rb.style.maxHeight='none';
+  const measured=Math.ceil(rb.scrollHeight || rb.getBoundingClientRect().height);
+  frozenRuleShellHeight=Math.max(560,Math.min(720,measured));
+  rb.style.height=`${frozenRuleShellHeight}px`;
+  rb.style.minHeight=`${frozenRuleShellHeight}px`;
+  rb.style.maxHeight=`${frozenRuleShellHeight}px`;
+  rs.style.height=`${frozenRuleShellHeight}px`;
+  rs.style.minHeight=`${frozenRuleShellHeight}px`;
+  rs.style.maxHeight=`${frozenRuleShellHeight}px`;
+  return frozenRuleShellHeight;
+}
 function syncHeights(){
   const root=document.querySelector('.metric-builder');
   const mb=document.getElementById('metrics-builder'),ms=document.getElementById('metrics-saved'),rb=document.getElementById('metrics-rule-builder'),rs=document.getElementById('metrics-rules');
   if(!root||!mb||!ms||!rb||!rs)return;
-  root.classList.add('v3104-grid');ms.classList.add('v3104-scroll-panel');rs.classList.add('v3104-scroll-panel');
+  root.classList.add('v3107-grid');ms.classList.add('v3107-scroll-panel');rs.classList.add('v3107-scroll-panel');
 
-  // V3.10.4: Builder owns the row height. The list is never allowed to make
-  // the Builder taller. Clear list heights first, keep builders at natural
-  // height, measure them, then constrain the two list panels to those heights.
-  mb.style.height='auto';rb.style.height='auto';
-  mb.style.minHeight='0';rb.style.minHeight='0';
-  if(window.matchMedia('(max-width:1050px)').matches){
-    ms.style.height='';rs.style.height='';
+  const mobile=window.matchMedia('(max-width:1050px)').matches;
+  mb.style.height='auto';mb.style.minHeight='0';
+
+  if(mobile){
+    ms.style.height='';
+    measureAndFreezeRuleShell();
     return;
   }
 
-  ms.style.height='';rs.style.height='';
-  const h1=Math.ceil(mb.scrollHeight || mb.getBoundingClientRect().height);
-  const h2=Math.ceil(rb.scrollHeight || rb.getBoundingClientRect().height);
-  if(h1>0)ms.style.height=`${h1}px`;
-  if(h2>0)rs.style.height=`${h2}px`;
-}
+  // Metric pair keeps its existing behavior.
+  ms.style.height='';
+  const metricH=Math.ceil(mb.scrollHeight || mb.getBoundingClientRect().height);
+  if(metricH>0)ms.style.height=`${metricH}px`;
 
+  // Rule pair freezes once from structured content; condition mutations never resize it.
+  if(!frozenRuleShellHeight)measureAndFreezeRuleShell();
+  else{
+    rb.style.height=`${frozenRuleShellHeight}px`;
+    rb.style.minHeight=`${frozenRuleShellHeight}px`;
+    rb.style.maxHeight=`${frozenRuleShellHeight}px`;
+    rs.style.height=`${frozenRuleShellHeight}px`;
+    rs.style.minHeight=`${frozenRuleShellHeight}px`;
+    rs.style.maxHeight=`${frozenRuleShellHeight}px`;
+  }
+}
 function isBefore(a,b){return !!(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)}
 function nativePageSizeControl(panel,list){
   if(!panel||!list)return null;
@@ -665,7 +887,7 @@ function nativePageSizeControl(panel,list){
 }
 function forceTenPerPage(panelId,listId){
   const panel=document.getElementById(panelId),list=document.getElementById(listId);if(!panel||!list)return;
-  panel.classList.add('v3104-scroll-panel');
+  panel.classList.add('v3107-scroll-panel');
   const ctl=nativePageSizeControl(panel,list);if(!ctl)return;
   const old=String(ctl.input.value||'').trim();
   if(old==='10')return;
@@ -697,13 +919,13 @@ function isSearchControl(el){
 }
 function installSearchableTier3(native,grid){
   if(!native)return null;
-  let wrap=native.closest('.v3104-tier3-combo');if(wrap){grid.appendChild(wrap);return wrap}
-  wrap=document.createElement('div');wrap.className='v3104-tier3-combo v3104-l3';
-  const listId='v3104-tier3-'+Math.random().toString(36).slice(2,10);
-  const input=document.createElement('input');input.type='text';input.className='v3104-tier3-input';input.setAttribute('list',listId);input.setAttribute('autocomplete','off');input.placeholder='选择 / 搜索三级指标';
+  let wrap=native.closest('.v3107-tier3-combo');if(wrap){grid.appendChild(wrap);return wrap}
+  wrap=document.createElement('div');wrap.className='v3107-tier3-combo v3107-l3';
+  const listId='v3107-tier3-'+Math.random().toString(36).slice(2,10);
+  const input=document.createElement('input');input.type='text';input.className='v3107-tier3-input';input.setAttribute('list',listId);input.setAttribute('autocomplete','off');input.placeholder='选择 / 搜索三级指标';
   const dl=document.createElement('datalist');dl.id=listId;
-  const picker=document.createElement('button');picker.type='button';picker.className='v3104-tier3-picker';picker.title='展开 / 搜索三级指标';picker.setAttribute('aria-label','展开 / 搜索三级指标');picker.textContent='⌄';
-  native.classList.add('v3104-tier3-native');wrap.appendChild(native);wrap.appendChild(input);wrap.appendChild(dl);wrap.appendChild(picker);grid.appendChild(wrap);
+  const picker=document.createElement('button');picker.type='button';picker.className='v3107-tier3-picker';picker.title='展开 / 搜索三级指标';picker.setAttribute('aria-label','展开 / 搜索三级指标');picker.textContent='⌄';
+  native.classList.add('v3107-tier3-native');wrap.appendChild(native);wrap.appendChild(input);wrap.appendChild(dl);wrap.appendChild(picker);grid.appendChild(wrap);
   const options=()=>[...native.options].filter(o=>!o.disabled&&String(o.value||'')!=='');
   const labelOf=()=>native.selectedOptions?.[0]?.textContent?.trim()||'';
   const sync=()=>{const opts=options();dl.innerHTML='';opts.forEach(o=>{const x=document.createElement('option');x.value=(o.textContent||'').trim();dl.appendChild(x)});input.value=labelOf();input.disabled=native.disabled||opts.length===0;picker.disabled=input.disabled};
@@ -715,65 +937,118 @@ function installSearchableTier3(native,grid){
 function findLead(row,join){if(join)return join;return [...row.querySelectorAll('span,div,label')].find(x=>x.children.length===0&&(x.textContent||'').trim()==='起始')||null}
 function compactConditionRow(row){
   if(!row||!row.classList?.contains('condition-row'))return;
-  let grid=row.querySelector(':scope > .v3104-condition-grid');
-  if(row.dataset.v3104Compacted==='1'&&grid){syncValueMode(row,grid);return}
+  let grid=row.querySelector(':scope > .v3107-condition-grid');
+  if(row.dataset.v3107Compacted==='1'&&grid){syncValueMode(row,grid);return}
   const selects=[...row.querySelectorAll('select')];if(!selects.length)return;
   const join=selects.find(isJoinSelect)||null,op=selects.find(s=>s!==join&&isOperatorSelect(s))||null;
   const candidates=selects.filter(s=>s!==join&&s!==op);if(candidates.length<3)return;
-  const levels=candidates.slice(-3),legacy=candidates.slice(0,-3);legacy.forEach(x=>x.classList.add('v3104-hidden-legacy'));
+  const levels=candidates.slice(-3),legacy=candidates.slice(0,-3);legacy.forEach(x=>x.classList.add('v3107-hidden-legacy'));
   const buttons=[...row.querySelectorAll('button')],del=buttons.find(isDeleteButton)||buttons.at(-1)||null;
-  buttons.filter(b=>b!==del&&isSearchControl(b)).forEach(b=>b.classList.add('v3104-hidden-search'));
-  [...row.querySelectorAll('input')].filter(isSearchControl).forEach(x=>x.classList.add('v3104-hidden-search'));
-  const value=[...row.querySelectorAll('input')].find(x=>!x.classList.contains('v3104-hidden-search')&&(x.classList.contains('c-value')||['number','text'].includes((x.type||'text').toLowerCase())))||null;
+  buttons.filter(b=>b!==del&&isSearchControl(b)).forEach(b=>b.classList.add('v3107-hidden-search'));
+  [...row.querySelectorAll('input')].filter(isSearchControl).forEach(x=>x.classList.add('v3107-hidden-search'));
+  const value=[...row.querySelectorAll('input')].find(x=>!x.classList.contains('v3107-hidden-search')&&(x.classList.contains('c-value')||['number','text'].includes((x.type||'text').toLowerCase())))||null;
   const lead=findLead(row,join);
-  if(!grid){grid=document.createElement('div');grid.className='v3104-condition-grid';row.prepend(grid)}
+  if(!grid){grid=document.createElement('div');grid.className='v3107-condition-grid';row.prepend(grid)}
   const move=(el,cls)=>{if(!el)return;el.classList.add(cls);grid.appendChild(el)};
-  move(lead,'v3104-lead');move(levels[0],'v3104-l1');move(levels[1],'v3104-l2');installSearchableTier3(levels[2],grid);move(op,'v3104-op');move(value,'v3104-value');move(del,'v3104-delete');
-  row.classList.add('v3104-condition-row');row.dataset.v3104Compacted='1';
+  move(lead,'v3107-lead');move(levels[0],'v3107-l1');move(levels[1],'v3107-l2');installSearchableTier3(levels[2],grid);move(op,'v3107-op');move(value,'v3107-value');move(del,'v3107-delete');
+  row.classList.add('v3107-condition-row');row.dataset.v3107Compacted='1';
   const sync=()=>requestAnimationFrame(()=>syncValueMode(row,grid));
   selects.forEach(s=>s.addEventListener('change',sync));
   new MutationObserver(sync).observe(row,{attributes:true,subtree:true,attributeFilter:['style','class']});
   syncValueMode(row,grid);
 }
 function syncValueMode(row,grid){
-  const value=row.querySelector('.v3104-value');
+  const value=row.querySelector('.v3107-value');
   const hidden=!value||value.style.display==='none'||getComputedStyle(value).display==='none';
-  grid.classList.toggle('v3104-no-value',hidden);
+  grid.classList.toggle('v3107-no-value',hidden);
 }
 function compactConditionBox(id){
-  const box=document.getElementById(id);if(!box)return;box.classList.add('v3104-condition-list');[...box.children].forEach(compactConditionRow);
+  const box=document.getElementById(id);if(!box)return;box.classList.add('v3107-condition-list');[...box.children].forEach(compactConditionRow);
 }
 function compactAllConditions(){
   compactConditionBox('ruleConditions');compactConditionBox('resultFilterConditions');compactConditionBox('ovFilterConditions');
   ['ruleConditions','resultFilterConditions','ovFilterConditions'].forEach(id=>{
     const box=document.getElementById(id);if(!box)return;
-    box.querySelectorAll('button').forEach(b=>{if((b.textContent||'').trim()==='搜索'&&b.closest('.condition-row'))b.classList.add('v3104-hidden-search')});
+    box.querySelectorAll('button').forEach(b=>{if((b.textContent||'').trim()==='搜索'&&b.closest('.condition-row'))b.classList.add('v3107-hidden-search')});
   });
   const rbox=document.getElementById('resultFilterConditions'),panel=rbox?.closest('.builder-panel');
-  if(panel)[...panel.children].forEach(x=>{if(x.classList?.contains('inline')&&x!==rbox)x.classList.add('v3104-result-toolbar')});
+  if(panel)[...panel.children].forEach(x=>{if(x.classList?.contains('inline')&&x!==rbox)x.classList.add('v3107-result-toolbar')});
+}
+
+
+function structureRuleBuilder(){
+  const panel=document.getElementById('metrics-rule-builder');
+  const cond=document.getElementById('ruleConditions');
+  const add=document.getElementById('addRuleCondition');
+  const save=document.getElementById('saveRule');
+  const clear=document.getElementById('clearRule');
+  if(!panel||!cond||!add||!save||!clear||panel.dataset.v3107Structured==='1')return;
+  panel.dataset.v3107Structured='1';
+
+  const oldActions=add.closest('.inline');
+  const note=oldActions?.nextElementSibling?.classList?.contains('small')?oldActions.nextElementSibling:null;
+
+  const section=document.createElement('div');
+  section.className='v3107-condition-section';
+
+  const head=document.createElement('div');
+  head.className='v3107-condition-head';
+  const title=document.createElement('div');
+  title.className='v3107-condition-title';
+  title.textContent='条件设置';
+  const hint=document.createElement('div');
+  hint.className='v3107-condition-hint';
+  hint.textContent='每条条件一行；第二条起可使用 AND / OR / NOT';
+  head.append(title,hint);
+
+  const addRow=document.createElement('div');
+  addRow.className='v3107-add-condition-row';
+  addRow.appendChild(add);
+
+  section.append(head,cond,addRow);
+
+  const footer=document.createElement('div');
+  footer.className='v3107-rule-footer';
+  const actions=document.createElement('div');
+  actions.className='v3107-rule-actions';
+  actions.append(save,clear);
+  footer.appendChild(actions);
+  if(note){
+    note.classList.add('v3107-rule-note');
+    footer.appendChild(note);
+  }
+
+  const desc=document.getElementById('ruleDescription');
+  const descRow=desc?.closest('.form-row');
+  if(descRow)descRow.after(section);
+  else panel.appendChild(section);
+  panel.appendChild(footer);
+  if(oldActions&&oldActions.children.length===0)oldActions.remove();
+
+  requestAnimationFrame(()=>{frozenRuleShellHeight=0;measureAndFreezeRuleShell();});
 }
 
 function observe(){
+  structureRuleBuilder();
   const metricList=document.getElementById('metricList'),ruleList=document.getElementById('ruleList');
-  const mb=document.getElementById('metrics-builder'),rb=document.getElementById('metrics-rule-builder');
+  const mb=document.getElementById('metrics-builder');
   if(window.ResizeObserver){
-    if(mb&&!mb.__v3104ResizeObserved){mb.__v3104ResizeObserved=true;new ResizeObserver(scheduleSyncHeights).observe(mb)}
-    if(rb&&!rb.__v3104ResizeObserved){rb.__v3104ResizeObserved=true;new ResizeObserver(scheduleSyncHeights).observe(rb)}
+    if(mb&&!mb.__v3107ResizeObserved){mb.__v3107ResizeObserved=true;new ResizeObserver(scheduleSyncHeights).observe(mb)}
   }
-  if(metricList&&!metricList.__v3104Observed){metricList.__v3104Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{metricList.scrollTop=0},0)}).observe(metricList,{childList:true})}
-  if(ruleList&&!ruleList.__v3104Observed){ruleList.__v3104Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{ruleList.scrollTop=0},0)}).observe(ruleList,{childList:true})}
+  if(metricList&&!metricList.__v3107Observed){metricList.__v3107Observed=true;new MutationObserver(()=>{configureNativePagination();scheduleSyncHeights();setTimeout(()=>{metricList.scrollTop=0},0)}).observe(metricList,{childList:true})}
+  if(ruleList&&!ruleList.__v3107Observed){ruleList.__v3107Observed=true;new MutationObserver(()=>{configureNativePagination();setTimeout(()=>{ruleList.scrollTop=0},0)}).observe(ruleList,{childList:true})}
   ['ruleConditions','resultFilterConditions','ovFilterConditions'].forEach(id=>{
-    const box=document.getElementById(id);if(box&&!box.__v3104Observed){box.__v3104Observed=true;new MutationObserver(()=>requestAnimationFrame(compactAllConditions)).observe(box,{childList:true,subtree:true})}
+    const box=document.getElementById(id);if(box&&!box.__v3107Observed){box.__v3107Observed=true;new MutationObserver(()=>requestAnimationFrame(()=>{compactAllConditions();if(id==='ruleConditions'){const rows=box.querySelectorAll('.condition-row');if(rows.length>3)box.scrollTop=box.scrollHeight}})).observe(box,{childList:true,subtree:true})}
   });
 }
 
 function boot(){
   injectCss();
-  const root=document.querySelector('.metric-builder');if(root)root.classList.add('v3104-grid');
+  const root=document.querySelector('.metric-builder');if(root)root.classList.add('v3107-grid');
   compactAllConditions();observe();configureNativePagination();syncHeights();
   window.addEventListener('resize',scheduleSyncHeights,{passive:true});
   [80,250,700,1500,3000].forEach(ms=>setTimeout(()=>{compactAllConditions();observe();configureNativePagination();syncHeights()},ms));
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
-/* CDH V3.10.4 UI PATCH END */
+/* CDH V3.10.7 UI PATCH END */

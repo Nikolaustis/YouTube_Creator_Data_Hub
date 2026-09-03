@@ -72,7 +72,7 @@ function reset(){page=1;render()}q.oninput=()=>{clearOvSelection();reset()};sort
 /* CDH V3.10.3 UI PATCH START */
 (()=>{
 'use strict';
-const PATCH='3.10.3';
+const PATCH='3.10.2';
 if(window.__CDH_V3103_UI_PATCH__) return;
 window.__CDH_V3103_UI_PATCH__=PATCH;
 
@@ -92,6 +92,8 @@ const CSS=`
 .metric-builder.v3103-grid #metrics-rule-builder{grid-column:1;grid-row:2;margin:0!important}
 .metric-builder.v3103-grid #metrics-rules{grid-column:2;grid-row:2;margin:0!important}
 
+/* Reuse the native list pagination. V3.10.1's second pager must never remain visible. */
+.v3101-list-pager{display:none!important}
 #metrics-saved.v3103-scroll-panel,#metrics-rules.v3103-scroll-panel{
   display:flex!important;
   flex-direction:column!important;
@@ -214,6 +216,7 @@ const CSS=`
 
 function injectCss(){
   if(document.getElementById('cdh-v3103-ui-style'))return;
+  const old=document.getElementById('cdh-v3101-ui-style');if(old)old.remove();
   const s=document.createElement('style');s.id='cdh-v3103-ui-style';s.textContent=CSS;document.head.appendChild(s);
 }
 
@@ -247,6 +250,7 @@ function nativePageSizeControl(panel,list){
 function forceTenPerPage(panelId,listId){
   const panel=document.getElementById(panelId),list=document.getElementById(listId);if(!panel||!list)return;
   panel.classList.add('v3103-scroll-panel');
+  panel.querySelectorAll('.v3101-list-pager').forEach(x=>x.remove());
   const ctl=nativePageSizeControl(panel,list);if(!ctl)return;
   const old=String(ctl.input.value||'').trim();
   if(old==='10')return;
@@ -345,6 +349,7 @@ function observe(){
 
 function boot(){
   injectCss();
+  document.querySelectorAll('.v3101-list-pager').forEach(x=>x.remove());
   const root=document.querySelector('.metric-builder');if(root)root.classList.add('v3103-grid');
   compactAllConditions();observe();configureNativePagination();syncHeights();
   window.addEventListener('resize',scheduleSyncHeights,{passive:true});

@@ -33,7 +33,7 @@ const resultStates=new Map();
 const FILTER_FIELDS=[
  ['candidate_pool','候选池','text'],['country','国家/地区','text'],['subscribers','订阅数','number'],['objective_fit_score','综合适配分','number'],['objective_fit_status','综合适配等级','text'],['topic_affinity_score','主题适配','number'],['use_case_continuity_score','场景连续性','number'],['content_fit_score','内容场景适配（兼容）','number'],['continuity_fit_score','连续性（兼容）','number'],['brand_safety_score','品牌安全','number'],['audience_size_fit_score','体量适配','number'],['brand_safety_status','品牌安全状态','text'],['creator_language_status','内容语言状态','text'],['creator_language_ratio','目标语言占比','number'],['profile_verification_status','Profile验证','text'],
  ['objective_recent_videos','最近样本相关视频数','number'],['objective_active_months','相关内容覆盖月份','number'],['local_data_status','本地数据状态','text'],
- ['ugphone_videos','UgPhone视频数','number'],['competitor_videos','竞品视频数','number'],['discovery_score','发现评分','number'],['best_video_views','最佳视频播放量','number'],['query_coverage','Query Coverage','number'],['workflow_status','工作流','text']
+ ['ugphone_videos','主品牌视频数（兼容）','number'],['competitor_videos','竞品组视频数（兼容）','number'],['discovery_score','发现评分','number'],['best_video_views','最佳视频播放量','number'],['query_coverage','Query Coverage','number'],['workflow_status','工作流','text']
 ];
 const maybeNum=v=>v==null||v===''?'—':Number(v).toLocaleString();
 function pagerButtons(page,pages){let h='';for(let p=Math.max(1,page-2);p<=Math.min(pages,page+2);p++)h+=`<button class="btn ${p===page?'primary':''}" data-rs-page="${p}">${p}</button>`;return h}
