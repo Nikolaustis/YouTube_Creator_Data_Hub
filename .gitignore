@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Runtime data
+data/*.sqlite
+data/*.sqlite-*
+*.sqlite-wal
+*.sqlite-shm
+output/
+exports/
+backups/
+_upgrade_backups/
+logs/
+*.log
+
+# Business / generated files
+*.xlsx
+*.xlsm
+*.csv
+benchmarks/results/*.json
+evals/results/*.jsonl
+!evals/cases.jsonl
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
