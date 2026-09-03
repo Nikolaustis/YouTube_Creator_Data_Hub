@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from ..config import load_query_packs, load_brands
+from ..config import load_query_packs
 from ..db import connect, json_dump, json_load
 from ..util import now_utc
 from . import prompts
@@ -141,7 +141,7 @@ class AICopilot:
 
     def _mock_result(self, task: str, source: Any) -> dict[str, Any]:
         if task=="creator_brief":
-            return {"summary":"Mock Creator Brief（离线自检）","priority":"medium","confidence":0.8,"positioning":"基于本地视频事实的内容定位。","performance":"使用本地播放指标。","relationship":"使用UgPhone/竞品分类事实。","opportunity":"用于验证AI增强层，不代表真实模型判断。","risks":["Mock provider仅用于测试"],"next_step":"保持人工复核","evidence_keys":["subscriber_count","stored_videos","ugphone_videos"]}
+            return {"summary":"Mock Creator Brief（离线自检）","priority":"medium","confidence":0.8,"positioning":"基于本地视频事实的内容定位。","performance":"使用本地播放指标。","relationship":"使用当前 Workspace 的品牌 / 关系 / Taxonomy 事实。","opportunity":"用于验证AI增强层，不代表真实模型判断。","risks":["Mock provider仅用于测试"],"next_step":"保持人工复核","evidence_keys":["subscriber_count","stored_videos","ugphone_videos"]}
         if task=="creator_compare":
             ranking=[]
             for i,c in enumerate(source,1): ranking.append({"channel_id":c["channel_id"],"channel_title":c.get("channel_title") or c["channel_id"],"rank":i,"reason":"Mock ranking","risk":"Mock provider"})
@@ -305,7 +305,7 @@ class AICopilot:
         if fc.get("require_topic_match",True): parts.append("必须匹配基础主题")
         if fc.get("prefer_long_term"):
             parts.append(f"长期硬门槛>={int(fc.get('long_term_min_videos') or 5)}条且>={int(fc.get('long_term_min_months') or 3)}个月")
-        if fc.get("exclude_official_channels",True): parts.append("排除云手机/游戏官方")
+        if fc.get("exclude_official_channels",True): parts.append("排除官方 / 产品账号")
         if fc.get("exclude_script_cheat_channels",True): parts.append("排除主要脚本/外挂频道")
         return "；".join(parts) or "高召回搜索后按结构化 Fit Criteria 排序。"
 
@@ -377,14 +377,14 @@ class AICopilot:
     def _official_cloud_brand_channel(self, channel_title: str) -> tuple[bool,str]:
         title=self._text(channel_title)
         if not title: return False,""
-        cfg=load_brands(); exact=set()
+        cfg=self.hub.brand_cfg or {}; exact=set()
         for b in cfg.get("brands") or []:
             names=[b.get("display_name")]+list(b.get("aliases") or [])
             for raw in names:
                 n=self._text(raw)
                 if not n: continue
-                exact.update({n,n+" official",n+" cloud phone",n+" cloudphone"})
-        if title in exact: return True,"云手机品牌官方/产品频道"
+                exact.update({n,n+" official",n+" cloud phone",n+" cloudphone",n+" official channel",n+" product"})
+        if title in exact: return True,"品牌官方 / 产品频道"
         return False,""
 
     def _official_game_channel(self, base_query: str, channel_title: str, description: str="") -> tuple[bool,str]:

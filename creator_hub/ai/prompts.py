@@ -22,7 +22,7 @@ def _payload(label: str, data: Any) -> str:
 
 
 def creator_brief(context: dict[str, Any]) -> str:
-    return BASE_RULES + "\nCreate an evidence-grounded Creator Brief: positioning, recent performance, UgPhone/competitor relationship, opportunity, risks, and recommended next step." + _payload("CREATOR_CONTEXT", context)
+    return BASE_RULES + "\nCreate an evidence-grounded Creator Brief: positioning, recent performance, Workspace brand/relationship context, opportunity, risks, and recommended next step." + _payload("CREATOR_CONTEXT", context)
 
 
 def creator_compare(contexts: list[dict[str, Any]]) -> str:

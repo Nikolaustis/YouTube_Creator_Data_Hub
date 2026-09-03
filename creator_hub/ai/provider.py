@@ -342,7 +342,7 @@ class OpenAIResponsesProvider(_HTTPProvider):
         }
         payload = _request_json(
             _endpoint(str(self.cfg.get("base_url") or protocol_default_base_url(self.name)), "/responses"),
-            headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json", "X-Client-Request-Id": str(uuid.uuid4()), "User-Agent": "YouTube-Creator-Data-Hub/3.10.3"},
+            headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json", "X-Client-Request-Id": str(uuid.uuid4()), "User-Agent": "YouTube-Creator-Data-Hub/3.10.0"},
             body=body, timeout=self.timeout,
         )
         text = payload.get("output_text") or ""
@@ -356,7 +356,7 @@ class OpenAIResponsesProvider(_HTTPProvider):
         return AIResponse(parsed, str(payload.get("id") or ""), int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0), str(payload.get("status") or "completed"))
 
     def list_models(self) -> list[str]:
-        payload = _request_json(_endpoint(str(self.cfg.get("base_url")), "/models"), method="GET", headers={"Authorization": "Bearer " + self.key, "User-Agent": "YouTube-Creator-Data-Hub/3.10.3"}, timeout=self.timeout)
+        payload = _request_json(_endpoint(str(self.cfg.get("base_url")), "/models"), method="GET", headers={"Authorization": "Bearer " + self.key, "User-Agent": "YouTube-Creator-Data-Hub/3.10.0"}, timeout=self.timeout)
         return sorted({str(x.get("id")) for x in payload.get("data") or [] if isinstance(x, dict) and x.get("id")})
 
 
@@ -364,7 +364,7 @@ class OpenAIChatProvider(_HTTPProvider):
     name = "openai_chat"
 
     def _call(self, body: dict[str, Any]) -> dict[str, Any]:
-        return _request_json(_endpoint(str(self.cfg.get("base_url")), "/chat/completions"), headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json", "User-Agent": "YouTube-Creator-Data-Hub/3.10.3"}, body=body, timeout=self.timeout)
+        return _request_json(_endpoint(str(self.cfg.get("base_url")), "/chat/completions"), headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json", "User-Agent": "YouTube-Creator-Data-Hub/3.10.0"}, body=body, timeout=self.timeout)
 
     def generate_json(self, *, task: str, prompt: str, schema: dict[str, Any], model: str,
                       mock_data: dict[str, Any] | None = None) -> AIResponse:
@@ -394,7 +394,7 @@ class OpenAIChatProvider(_HTTPProvider):
         return AIResponse(parsed, str(payload.get("id") or ""), int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0), "completed")
 
     def list_models(self) -> list[str]:
-        payload = _request_json(_endpoint(str(self.cfg.get("base_url")), "/models"), method="GET", headers={"Authorization": "Bearer " + self.key, "User-Agent": "YouTube-Creator-Data-Hub/3.10.3"}, timeout=self.timeout)
+        payload = _request_json(_endpoint(str(self.cfg.get("base_url")), "/models"), method="GET", headers={"Authorization": "Bearer " + self.key, "User-Agent": "YouTube-Creator-Data-Hub/3.10.0"}, timeout=self.timeout)
         return sorted({str(x.get("id")) for x in payload.get("data") or [] if isinstance(x, dict) and x.get("id")})
 
 
@@ -402,7 +402,7 @@ class AnthropicMessagesProvider(_HTTPProvider):
     name = "anthropic_messages"
 
     def _headers(self) -> dict[str, str]:
-        return {"x-api-key": self.key, "anthropic-version": "2023-06-01", "content-type": "application/json", "User-Agent": "YouTube-Creator-Data-Hub/3.10.3"}
+        return {"x-api-key": self.key, "anthropic-version": "2023-06-01", "content-type": "application/json", "User-Agent": "YouTube-Creator-Data-Hub/3.10.0"}
 
     def generate_json(self, *, task: str, prompt: str, schema: dict[str, Any], model: str,
                       mock_data: dict[str, Any] | None = None) -> AIResponse:
@@ -431,7 +431,7 @@ class GeminiGenerateContentProvider(_HTTPProvider):
         model_id = str(model or "").removeprefix("models/")
         url = f"{base}/models/{urllib.parse.quote(model_id, safe='-_.')}:generateContent"
         body = {"contents": [{"parts": [{"text": _schema_instruction(prompt, schema)}]}], "generationConfig": {"responseMimeType": "application/json"}}
-        payload = _request_json(url, headers={"x-goog-api-key": self.key, "Content-Type": "application/json", "User-Agent": "YouTube-Creator-Data-Hub/3.10.3"}, body=body, timeout=self.timeout)
+        payload = _request_json(url, headers={"x-goog-api-key": self.key, "Content-Type": "application/json", "User-Agent": "YouTube-Creator-Data-Hub/3.10.0"}, body=body, timeout=self.timeout)
         parts = (((payload.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
         text = "".join(str(x.get("text") or "") for x in parts if isinstance(x, dict))
         parsed = _parse_json_text(text)
@@ -440,7 +440,7 @@ class GeminiGenerateContentProvider(_HTTPProvider):
 
     def list_models(self) -> list[str]:
         base = _validate_base_url(str(self.cfg.get("base_url")))
-        payload = _request_json(base + "/models?pageSize=1000", method="GET", headers={"x-goog-api-key": self.key, "User-Agent": "YouTube-Creator-Data-Hub/3.10.3"}, timeout=self.timeout)
+        payload = _request_json(base + "/models?pageSize=1000", method="GET", headers={"x-goog-api-key": self.key, "User-Agent": "YouTube-Creator-Data-Hub/3.10.0"}, timeout=self.timeout)
         out = []
         for x in payload.get("models") or []:
             if not isinstance(x, dict) or not x.get("name"):
