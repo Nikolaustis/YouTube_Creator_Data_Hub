@@ -48,7 +48,7 @@ python .\hub.py doctor --online
 .\start-dashboard.cmd
 ```
 
-This starts a local Python HTTP service at `http://.1:8765/`. The browser talks only to Python/SQLite on the same computer. It enables:
+This starts a local Python HTTP service at `http://127.0.0.1:8765/`. The browser talks only to Python/SQLite on the same computer. It enables:
 
 - YouTube discovery and Query Expansion
 - writing creators/videos to SQLite

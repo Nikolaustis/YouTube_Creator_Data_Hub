@@ -1,6 +1,6 @@
 # Query Expansion
 
-博主发现以“相关视频 → 发布视频的 Creator”为核心流程。 起，每次搜索都可以在原游戏关键词上叠加 Query Expansion。
+博主发现以“相关视频 → 发布视频的 Creator”为核心流程。v0.9.0 起，每次搜索都可以在原游戏关键词上叠加 Query Expansion。
 
 ## 规则
 

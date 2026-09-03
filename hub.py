@@ -106,7 +106,10 @@ def main():
 
     a=ap.parse_args()
     if a.cmd=="init":
-        init_db(a.db); dump({"ok":True,"db":str(Path(a.db).resolve()),"version":__version__}); return
+        init_db(a.db)
+        from creator_hub.workspace import WorkspaceService
+        ws=WorkspaceService(a.db); boot=ws.bootstrap()
+        dump({"ok":True,"db":str(Path(a.db).resolve()),"version":__version__,"workspace":boot}); return
     if a.cmd=="doctor":
         init_db(a.db)
         import importlib.util, sqlite3, tempfile

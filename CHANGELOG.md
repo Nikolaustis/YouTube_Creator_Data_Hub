@@ -1,3 +1,62 @@
+## v4.0.2
+
+- 修复交互 Dashboard 启动时 `socket.gaierror: [Errno 11001] getaddrinfo failed`：历史无效 Host `.1` 统一改为 `127.0.0.1`。
+- `hub.py serve`、Doctor、`serve_dashboard()`、`start-dashboard.cmd` 统一使用 `127.0.0.1:8765`。
+- 本机敏感 API 来源校验改为 `127.0.0.1` / `::1`；Setup、Dashboard、导出、安装与架构说明同步修正。
+- Schema 保持 18；保留 V4.0.1 Dashboard 批量构建与缓存优化。
+
+## v4.0.1
+
+- Dashboard Builder 性能修复：Metric Cube 改为视频事实 / Workspace Taxonomy 批量读取，移除按 Creator 的 N+1 查询。
+- Creator Detail：视频与标签一次批量读取，Snapshot 按 Creator 分块查询；新增同版本 Creator Detail 增量缓存。
+- metric_base.js 增加源数据签名缓存；数据与 Workspace 定义未变化时跳过 Cube 重算。
+- Dashboard 构建全过程输出 8 个阶段、Creator/Cube 进度与累计耗时，避免长时间无反馈。
+- upgrade.cmd 不再无条件删除 output/dashboard；构建器自行覆盖当前文件并删除孤立 Creator 页面，以保留可复用缓存。
+- Schema 保持 18；README.md / SKILL.md 同步更新。
+
+## v4.0.0
+
+- 将产品架构升级为 Global Fact Layer + Workspace Intelligence Layer。Creator / Video / Snapshot 全局共享，品牌、品牌组、Taxonomy、Creator Relationship、商业指标定义、Discovery Profile、二次指标、规则和 Saved Views 按 Workspace 隔离。
+- Schema 升至 18，新增 Workspace、Brand、Brand Group、Taxonomy、Creator Relationship、Business Metric Definition、Discovery Profile 与 Workspace Preset。
+- 新增工作区 Dashboard 与 /api/v1/workspaces/* API；Cloud Phone Growth 作为兼容 Workspace 保留既有云手机业务语义。
+- 分类器、Field Registry、二次指标与 Saved Views 接入 Workspace 作用域。
+- 覆盖包采用与项目根目录同构的结构；升级辅助文件使用稳定文件名，并自动清理历史版本化辅助文件与旧 overlay/ 暂存目录。
+- README.md / SKILL.md 同步升级为通用 Creator Intelligence 产品语义。
+
+## v3.10.8
+
+- 数据更新 → 同步记录：固定每页 30 条。
+- 同步记录表格外壳压缩为表头 + 5 条记录高度；当前页其余记录在表格内部垂直滚动。
+- 分页器保持在滚动外壳外；搜索、排序、翻页后内部滚动自动回到顶部。
+- 同步记录表头在内部滚动时保持 Sticky；最后一页不足 5 条时不制造空白。
+- README.md 同步更新；Schema 与 SQLite 业务数据不变。
+
+## v3.10.7
+
+- 修复规则条件行被 flex 压缩导致新增条件无法正常显示的问题：每条条件固定自然行高且禁止 shrink。
+- ruleConditions 成为唯一滚动 viewport：约三条条件高度，overflow-y:scroll；第 4 条及以后内部纵向滚动。
+- 删除每条条件各自的横向滚动条；窄宽度时仅保留条件 viewport 的共享横向滚动。
+- 删除 Rule Footer 的 margin-top:auto 空白；添加条件、保存/清空与说明紧随条件区。
+- 规则外壳根据结构化内容测量一次后冻结，条件数量变化不再改变左右 Card 高度。
+- README.md 同步更新；Schema 与 SQLite 业务数据不变。
+
+## v3.10.6
+
+- 规则 / 标签构建器改为桌面端固定外壳高度；条件数量不再改变 Card 高度。
+- 条件 viewport 固定为约三条条件高度，第 4 条及以后只在条件区内部垂直滚动。
+- 规则列表使用与规则构建器相同的固定外壳；只有 ruleList Body 滚动。
+- 禁止规则卡片 flex-grow / stretch，消除少量规则时卡片下方被拉出的巨大空白。
+- 规则列表继续 10 条/页；指标构建器 / 已构建指标的现有高度逻辑保持不变。
+- README.md 同步更新到 V3.10.6；Schema 不变，不修改 SQLite 业务数据。
+
+## v3.10.5
+
+- 扩展“规则 / 标签构建器”的桌面端内部结构：规则元数据、条件设置、保存 Footer 三段式布局，避免一条规则时 Card 过度收缩。
+- 规则说明区域加高；条件区增加标题、提示、独立“添加条件”区域；保存 / 清空移动到独立 Footer。
+- 规则构建器桌面端最小高度约 500px；规则列表继续跟随左侧 Builder 高度，并保持 10 条/页与 Card 内纵向滚动。
+- V3.10.4 的高度归属原则保持不变：右侧列表不能反向撑高左侧 Builder。
+- Schema 不变，不修改 SQLite 业务数据。
+
 ## v3.10.4
 
 - 修复二次指标四面板的高度归属：左侧“指标构建器 / 规则标签构建器”使用自然内容高度，右侧“已构建指标 / 规则列表”只能跟随左侧高度，不能反向撑高 Builder。

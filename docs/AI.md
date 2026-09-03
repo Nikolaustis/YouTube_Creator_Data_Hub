@@ -1,12 +1,12 @@
-# 可选 AI 层（）
+# 可选 AI 层（v3.9.3）
 
-##  AI 搜索 Agent
+## v3.9.3 AI 搜索 Agent
 
 Language 同时代表搜索 Query 语言与 Creator 主要内容语言目标。Profile 最近上传标题中，当可识别语言样本不少于3条时，默认要求目标语言占比至少60%；样本不足显示“未验证”，不作为硬过滤失败。多开/多账号场景扩展到 alt、alts、alt account、multiple alts、multi client、multiple clients、farm with alts 等社区词。
 
 Result Set 将 Creator 分为“推荐候选”和“风险候选 · 需人工复核”；后者用于保留内容适配但存在少量 Script/Hack 风险信号的 Creator。`representative_fit_video` 用于说明为何符合 Prompt，`best_video` 继续表示 Discovery 为什么找到该 Creator，两者不得混用。Planner Strategy 由最终 Fit Criteria 确定性生成，避免与真实订阅/长期/语言硬约束冲突。Prompt 版本为 `query-planner-v8`。
 
-##  AI 搜索 Agent
+## v3.9.0 AI 搜索 Agent
 
 AI 搜索要求会同时生成最终可执行 Query 与结构化 Fit Criteria。Planner v6 直接受 `Max Queries` 预算约束，本机只做去重/重复主题规范化。AI 请求遇到 read timeout、连接重置、429 或常见 5xx 时最多自动重试两次。Discovery 完成后先执行低成本预过滤，再将 Profile Budget 用于更有潜力的 Creator，抽样最近最多 50 条上传（不入库）。基础主题先在频道级上下文确认；确认后 AFK、Auto Farm、Overnight、Multi-account 等近期场景内容可直接计入连续性，不要求每条视频标题重复完整游戏名。Result Set 保存的是当次快照；旧 Result Set 不会被新规则自动改写。
 
@@ -66,7 +66,7 @@ AI 是 **可拔插增强层**，不是 Creator Data Hub Core 的运行依赖。Y
 .\scripts\set-ai-key.cmd
 ```
 
- 使用供应商中立的本机密钥槽：
+v3.2.0 使用供应商中立的本机密钥槽：
 
 ```text
 CREATOR_HUB_AI_API_KEY
@@ -110,7 +110,7 @@ Mock 的用途是验证安装、页面、缓存、AI 数据表和调用流程，
 
 ## 5. AI 搜索 Agent：直接调用 YouTube API
 
- 将原来的“Query Planner 只给建议”升级为：
+v3.2.0 将原来的“Query Planner 只给建议”升级为：
 
 ```text
 基础关键词
@@ -154,7 +154,7 @@ Mock 的用途是验证安装、页面、缓存、AI 数据表和调用流程，
 - `ai_feedback`：运营人员对 AI 结果的反馈。
 - `ai_cache`：结构化 AI 结果缓存。
 
- Schema 为 12。新增：
+v3.2.0 Schema 为 12。新增：
 
 - `ai_result_sets`：一次 Ask Hub / AI 搜索 Agent 的可回看结果集元数据。
 - `ai_result_items`：结果集中的 Creator 快照。
@@ -162,7 +162,7 @@ Mock 的用途是验证安装、页面、缓存、AI 数据表和调用流程，
 - `discovery_runs.ai_run_id`：AI 搜索计划与实际 YouTube Discovery Run 的关联。
 
 
-##  Result Set 与 Creator Picker
+## v3.2.0 Result Set 与 Creator Picker
 
 - Ask Hub 与 AI 搜索 Agent 每次执行都会生成 `ai_result_sets` + `ai_result_items` 快照。
 - 结果集与 AI Run / Discovery Run 显式关联；历史查看不会被后续数据库更新改写。
@@ -171,6 +171,6 @@ Mock 的用途是验证安装、页面、缓存、AI 数据表和调用流程，
 - Creator Brief / Creator 对比使用本地 SQLite 自动完成候选，不调用 AI、不消耗 AI 配额。
 
 
-##  双维度适配与 Query 漏斗
+## v3.9.3 双维度适配与 Query 漏斗
 
 AI Search 将目标主题适配（目标游戏/主题内容）与云手机使用场景连续性（AFK、Auto Farm、Alt/Multi-account 等）分开评分，并分别保存主题代表视频与场景代表视频。主表只展示结论，完整证据在 Inspector/XLSX 中。Query Details 记录每条 Query 的视频命中、Creator 命中、原始候选、最终保留与风险候选。Weekly Brief 使用 `weekly-brief-v2`，核心 KPI 为确定性本地统计。

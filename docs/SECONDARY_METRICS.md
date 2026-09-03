@@ -1,5 +1,5 @@
 
-## 三级 Field Taxonomy 与 Field Picker（）
+## 三级 Field Taxonomy 与 Field Picker（v3.10.0）
 
 二次指标、博主库筛选/排序、规则构建和比值指标构建共享同一字段目录。每个字段使用稳定 ID，并携带分组、数据粒度、数据类型以及是否允许筛选/排序/比值引用等元数据。
 
@@ -13,7 +13,7 @@
 
 # 二次指标工作区 v1.0
 
-二次指标页面属于运营分析层，不改变 YouTube Fact Store。 的核心原则是：**先明确数据粒度，再做聚合。**
+二次指标页面属于运营分析层，不改变 YouTube Fact Store。v1.0.0 的核心原则是：**先明确数据粒度，再做聚合。**
 
 ## 1. 数据粒度
 
@@ -143,7 +143,7 @@ UgPhone视频数量 ÷ 本地已存视频数
 
 ## 7. v0.x 配置迁移
 
- 会尝试迁移旧浏览器配置：
+v1.0.0 会尝试迁移旧浏览器配置：
 
 - `objective` 规则类型 → `creator_fact`
 - `aggregate_label` → `creator_label`
@@ -151,9 +151,9 @@ UgPhone视频数量 ÷ 本地已存视频数
 - 把博主标签当作构建指标的错误配置会移除；引用它们的规则尽量改为直接引用对应博主标签
 - 旧“分子视频聚合 ÷ 分母视频聚合”比值会迁移为两个隐藏构建指标，再由比值指标引用
 
-因此  的新建指标不会再混用 Creator 与 Video 粒度。
+因此 v1.0.0 的新建指标不会再混用 Creator 与 Video 粒度。
 
-##  configuration persistence and dependency safety
+## v2.1.0 configuration persistence and dependency safety
 
 In interactive mode, the complete Secondary Metrics workspace (constructed metrics, ratio metrics, rules and saved result filters) is stored in SQLite `app_settings.secondary_metrics`. Existing browser workspaces are migrated only when SQLite does not yet contain a saved configuration. Static read-only mode can still use the browser-local fallback.
 

@@ -21,7 +21,7 @@ def fixture(root: Path) -> Path:
             vid=f'v{i:010d}'[:11]
             vtitle='Anime Expeditions AFK Auto Farm Overnight Multi Account Guide With A Deliberately Long Video Title For Layout Testing '+str(i)
             c.execute('INSERT INTO videos(video_id,channel_id,title,description,tags_json,published_at,current_views,current_likes,current_comments,discovered_at) VALUES(?,?,?,?,?,?,?,?,?,?)',(vid,cid,vtitle,'','[]',now,10000+i,500+i,80+i,now))
-            c.execute('INSERT INTO label_suggestions(video_id,suggested_role,brands_json,confidence,evidence_json,generated_at,rule_version) VALUES(?,?,?,?,?,?,?)',(vid,'daily','[]','confirmed','["use_case_not_cloud_evidence:afk"]',now,'-scene-separated'))
+            c.execute('INSERT INTO label_suggestions(video_id,suggested_role,brands_json,confidence,evidence_json,generated_at,rule_version) VALUES(?,?,?,?,?,?,?)',(vid,'daily','[]','confirmed','["use_case_not_cloud_evidence:afk"]',now,'0.2.0-scene-separated'))
             run='visual-run'
             if i==0:
                 c.execute('INSERT INTO discovery_runs(run_id,base_query,search_source,started_at,status,hits,unique_creators) VALUES(?,?,?,?,?,?,?)',(run,'Anime Expeditions','api',now,'complete',18,18))

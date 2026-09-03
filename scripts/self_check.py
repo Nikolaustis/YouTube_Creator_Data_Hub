@@ -53,7 +53,7 @@ def main():
         assert b"\r\n" in batch_bytes, f"CMD must use CRLF: {batch_file.relative_to(ROOT)}"
         assert batch_bytes.count(b"\n") == batch_bytes.count(b"\r\n"), f"CMD contains LF-only lines: {batch_file.relative_to(ROOT)}"
         assert all(byte < 128 for byte in batch_bytes), f"CMD must be ASCII-only: {batch_file.relative_to(ROOT)}"
-    assert SCHEMA_VERSION == 17
+    assert SCHEMA_VERSION == 18
 
     # Geography: every ISO alpha-2 country/territory is available and assigned to one of the 11 product groups.
     geo = geography()
@@ -177,6 +177,9 @@ def main():
 
         db = tmp / "hub.sqlite"
         hub = CreatorHub(db)
+        cloud_ws = hub.workspace.install_template("cloud_phone_growth", name="Cloud Phone Growth", workspace_id="self_check_cloud")
+        hub.workspace.set_active(cloud_ws["id"])
+        hub.brand_cfg = hub.workspace.classifier_config(hub.legacy_brand_cfg)
         result = import_v2(hub, tmp / "v2")
         assert result["creators"] == 1 and result["videos"] == 1
         assert result["business_metrics"]["metric_values_upserted"] == 2
@@ -918,12 +921,12 @@ def main():
 
         with sqlite3.connect(db) as conn:
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        required = {"creators", "videos", "creator_snapshots", "video_snapshots", "discovery_runs", "discovery_creator_results", "discovery_hits", "label_suggestions", "video_labels", "video_label_audit", "sync_runs", "app_settings", "creator_workflow", "creator_workflow_audit", "creator_discovery_summary", "creator_sync_attempts", "maintenance_runs", "backup_registry", "ai_runs", "ai_findings", "ai_evidence", "ai_feedback", "ai_cache", "ai_result_sets", "ai_result_items", "creator_business_metrics", "saved_views", "job_runs", "creator_availability_overrides", "creator_availability_override_audit", "schema_migrations", "run_specs", "data_assertions"}
+        required = {"creators", "videos", "creator_snapshots", "video_snapshots", "discovery_runs", "discovery_creator_results", "discovery_hits", "label_suggestions", "video_labels", "video_label_audit", "sync_runs", "app_settings", "creator_workflow", "creator_workflow_audit", "creator_discovery_summary", "creator_sync_attempts", "maintenance_runs", "backup_registry", "ai_runs", "ai_findings", "ai_evidence", "ai_feedback", "ai_cache", "ai_result_sets", "ai_result_items", "creator_business_metrics", "saved_views", "job_runs", "creator_availability_overrides", "creator_availability_override_audit", "schema_migrations", "run_specs", "data_assertions", "workspaces", "workspace_settings", "workspace_brands", "brand_groups", "brand_group_members", "taxonomy_schemes", "taxonomy_labels", "video_taxonomy_assignments", "creator_relationships", "business_metric_definitions", "discovery_profiles", "workspace_presets"}
         assert required <= tables, required - tables
         with sqlite3.connect(db) as conn:
             run_cols={r[1] for r in conn.execute("PRAGMA table_info(discovery_runs)")}
             assert {"base_query_source","ai_run_id"} <= run_cols
-            assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "17"
+            assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "18"
             idx={r[1] for r in conn.execute("PRAGMA index_list('videos')").fetchall()}
             assert "idx_videos_published" in idx
             sidx={r[1] for r in conn.execute("PRAGMA index_list('label_suggestions')").fetchall()}
@@ -934,7 +937,7 @@ def main():
             assert {"metric_value_usd","fx_rate_to_usd","fx_rate_date","fx_provider","fx_status","snapshot_kind"} <= business_cols
             job_cols={r[1] for r in conn.execute("PRAGMA table_info(job_runs)")}
             assert {"payload_json","resource_class","cancel_requested","checkpoint_json","resumable","retry_count","parent_job_id","worker_id"} <= job_cols
-            assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version=17").fetchone()[0] == 1
+            assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE version=18").fetchone()[0] == 1
 
 
         sync_html=(tmp / "dashboard" / "sync.html").read_text(encoding="utf-8")

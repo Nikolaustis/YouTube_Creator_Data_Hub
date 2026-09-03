@@ -1,0 +1,86 @@
+{
+  "package": "YouTube_Creator_Intelligence_Hub",
+  "release_version": "4.0.2",
+  "baseline": "4.0.1",
+  "type": "direct_root_overlay_upgrade",
+  "upgrade_entrypoint": "upgrade.cmd",
+  "stable_helper_filenames": true,
+  "uses_overlay_directory": false,
+  "database_schema": 18,
+  "database_changes": false,
+  "preserves_existing_facts": true,
+  "interactive_host": "127.0.0.1",
+  "interactive_port": 8765,
+  "files": [
+    {
+      "path": "README.md",
+      "size": 9123,
+      "sha256": "c3ba35f4de8f70b6f3f20a5de66b48b92fd779aac40db92a448b91e575dfe8df"
+    },
+    {
+      "path": "SKILL.md",
+      "size": 10292,
+      "sha256": "0576385d6a6d120e24cc39d4295f8a72381a7ad0a9a38edfd38b4eb7bff66d5c"
+    },
+    {
+      "path": "VERSION",
+      "size": 6,
+      "sha256": "c6d3fb057b198f1d0563d4218d4e36b48df752251aabffe78ea60aac5a72c7a2"
+    },
+    {
+      "path": "apply_upgrade.py",
+      "size": 3422,
+      "sha256": "71ab8039632b6b009fcf3b4273cd00365ecbfb624aafe3353c69533d43749253"
+    },
+    {
+      "path": "creator_hub/__init__.py",
+      "size": 22,
+      "sha256": "d540fa4ca8352bf7f9ac8cc72d81efdd2bb7a369cfa5b123d65a39e4ce298ed3"
+    },
+    {
+      "path": "creator_hub/dashboard.py",
+      "size": 123643,
+      "sha256": "b7a2475733603ba837467ce8db56c38402b3b657f75efce5318e0e4bfedcf5c5"
+    },
+    {
+      "path": "creator_hub/server.py",
+      "size": 49725,
+      "sha256": "46dbabd476e0594618c1438e2f3dc0b1d24565f1e0a4d399247bab1321bb69cd"
+    },
+    {
+      "path": "creator_hub/static/export_tools.js",
+      "size": 1285,
+      "sha256": "3c0101300f9b8b7cdd2fa4ab645335e783a3225915acafaa22ff3a59e0f3b7ab"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "size": 7088,
+      "sha256": "ccf677574b42e693ffbefdf1a2723dd9d46f728abdc447751320a124270d7b06"
+    },
+    {
+      "path": "docs/INSTALLATION.md",
+      "size": 3998,
+      "sha256": "3e07843f9159d42e1b6a2a48107260cce90ec2d03949a74cb3e126e8640654fb"
+    },
+    {
+      "path": "hub.py",
+      "size": 18765,
+      "sha256": "9b5959818615e0c02a11d7e111fd34063e774e9ccb854d35426501676cc185ad"
+    },
+    {
+      "path": "setup.cmd",
+      "size": 3946,
+      "sha256": "1ce5f8496c30a3696b667bf68dc7ccf0866e46ea1cffc243a2050d65c56f83ef"
+    },
+    {
+      "path": "start-dashboard.cmd",
+      "size": 234,
+      "sha256": "2d09eb0110148ebc34410e32c0f49b2629db382dd8d28f49cc66c71c309eef31"
+    },
+    {
+      "path": "upgrade.cmd",
+      "size": 922,
+      "sha256": "a340e4aa7ef8e76f8790472b51107f6c435b8666ad33f9a1c95173ccc53f9e66"
+    }
+  ]
+}

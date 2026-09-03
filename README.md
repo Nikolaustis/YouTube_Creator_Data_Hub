@@ -1,257 +1,181 @@
-# YouTube 博主数据中心 v3.10.7
+# YouTube Creator Intelligence Hub v4.0.2
 
-> 本仓库是 **YouTube Creator Data Hub v3.10.7** 的完整源码版本。  
-> GitHub 仓库只保存源码、配置模板、文档与启动脚本；**不包含业务数据库、API Key、导出结果、备份或运行时缓存**。
+本项目是一个本地优先的 **YouTube Creator Intelligence / Creator Data Management** 产品。它把 YouTube Creator / Video 的客观事实与具体业务语义拆开：基础数据全局共享，品牌、关系、分类、商业指标、发现策略、二次指标和规则由 Workspace 定义。
 
-## 项目定位
+> GitHub 仓库只保存源码、配置模板和文档。业务数据库、API Key、导出结果、备份和运行缓存不得提交。
 
-YouTube 博主数据中心是一个本地优先的 Creator Intelligence / KOL 数据工作台，用于完成从 **博主发现 → 数据入库 → 视频抓取 → 分类与人工复核 → 商业数据导入 → 二次指标 → 规则筛选 → AI 分析 → 导出与持续监控** 的完整闭环。
+## V4 核心变化
 
-系统以 SQLite 为本地事实源，Dashboard 负责交互与分析，不要求 Node/npm，也不依赖云端数据库。
+### Global Fact Layer
 
----
+Core 只认识稳定、通用的数据实体：
 
-## v3.10.7 当前能力
+- Creator
+- Video
+- Creator / Video Snapshot
+- Discovery Run / Hit
+- Job
+- AI Run / Finding / Evidence
+- Run Specification
+- Data Assertion
 
-### 1. 博主库
+Core 不再要求某个特定品牌、竞品集合、行业分类或商业指标必须存在。
 
-- 统一管理 Creator 基础信息、国家、订阅数、频道播放量、已存视频数、监控状态与优先级。
-- 支持搜索、筛选、排序、分页和 Saved Views。
-- 支持当前页选择、全结果选择以及批量操作。
-- Creator 名称可直接跳转 YouTube。
-- 支持 Creator Inspector 查看详细状态、商业表现、数据新鲜度等信息。
-- 筛选和排序所使用的字段会在结果表中体现，避免“隐藏条件”。
+### Workspace Intelligence Layer
 
-### 2. 博主发现
+每个 Workspace 可以独立定义：
 
-- 基于 YouTube Search / Query Expansion 发现 Creator 与命中视频。
-- 支持多语言 Query Pack 与地区/国家筛选。
-- 保存 Discovery Run、Query Coverage、命中视频、发现评分和审计信息。
-- 单条动作具备对应批量入口，可批量入库、抓取视频、监控和设置优先级。
-- 可将发现结果继续进入 Creator 数据库，而不是停留在一次性搜索结果。
+- Brand
+- Brand Group
+- Taxonomy / Label
+- Creator Relationship
+- Business Metric Definition
+- Discovery Profile
+- Constructed Metric / Ratio Metric
+- Rule
+- Saved View
+- Workspace Preset
 
-### 3. 视频数据与分类
+同一个 Creator / Video 不会因为进入多个项目而复制多份基础事实。
 
-- 抓取 Creator 视频及视频指标。
-- 支持增量抓取、指定时间范围和全历史抓取。
-- 保存视频播放量、点赞、评论等 Snapshot。
-- 分类同时保留：
-  - 系统原始判断；
-  - 人工复核结果；
-  - 最终有效分类。
-- 最终业务口径遵循人工优先，系统结果保留用于审计。
-- 支持离线重新分类，不需要额外消耗 YouTube API 配额。
+## Workspace 模板
 
-### 4. 商业表现数据
+系统内置：
 
-- 支持导入 CSV / XLSX / XLSM 商业数据。
-- 可保存 GMV、拉新等 Creator 级商业事实。
-- GMV 当前业务口径为 **UgPhone 后台 USD 累计快照**，不自动进行汇率换算。
-- 商业指标可以进入博主库、排序、二次指标、规则和 AI 分析。
+- **Blank Workspace**：空白通用工作区
+- **Brand / Influencer Marketing**：品牌 / 达人营销
+- **Affiliate / Performance Marketing**：联盟 / 效果营销
+- **Gaming Creator Discovery**：游戏 Creator 发现
+- **Cloud Phone Growth**：云手机增长兼容 Workspace
 
----
+Cloud Phone Growth 保留既有云手机分类、品牌和商业数据能力，但这些概念现在属于 Workspace 配置，不属于 Core。
 
-## 二次指标系统
-
-### 统一三级 Field Taxonomy
-
-所有需要选择字段的位置统一使用三级结构：
-
-1. **一级指标**
-   - 客观数据
-   - 博主标签
-   - 构建指标
-   - 比值指标
-
-2. **二级指标**
-   - 客观数据按基础信息、地理位置、频道规模、内容与品牌、内容表现、商业数据、Discovery / AI、数据健康、视频客观数据等业务维度组织；
-   - 构建指标和比值指标使用用户自定义分组；
-   - 未设置分组时统一进入“未分组”。
-
-3. **三级指标**
-   - 具体稳定 Field ID / Metric ID。
-
-显示名称只是 UI 标签，持久化与 Saved View 使用稳定 ID，因此修改显示名称不会破坏既有配置。
-
-### 统一条件构建器
-
-以下入口使用同一套“一条件一行”交互：
-
-- 规则 / 标签构建器；
-- 二次指标的“应用结果 · 博主库”；
-- 主博主库筛选器。
-
-每条条件统一为：
+## Workspace 数据模型
 
 ```text
-起始 / AND / OR / NOT
-→ 一级指标
-→ 二级指标
-→ 三级指标
-→ 运算符
-→ 值
-→ 删除
+Global Fact Layer
+├─ creators
+├─ videos
+├─ creator_snapshots
+├─ video_snapshots
+├─ discovery_*
+├─ job_runs
+├─ run_specs
+└─ data_assertions
+
+Workspace Intelligence Layer
+├─ workspaces
+├─ workspace_settings
+├─ workspace_brands
+├─ brand_groups
+├─ brand_group_members
+├─ taxonomy_schemes
+├─ taxonomy_labels
+├─ video_taxonomy_assignments
+├─ creator_relationships
+├─ business_metric_definitions
+├─ discovery_profiles
+└─ workspace_presets
 ```
 
-三级指标搜索直接内嵌在字段选择器内，不再使用独立搜索按钮。
+## 工作区切换
 
-### 构建指标
+Dashboard 新增 **工作区** 页面。
 
-构建指标从 **Video grain** 聚合到 **Creator grain**：
+切换 Workspace 后会重新构建 Dashboard，使当前页面使用新的：
+
+- 品牌配置
+- Taxonomy
+- Creator Relationship
+- 商业指标定义
+- 二次指标 / 规则
+- Saved Views
+- Discovery Profile
+
+Creator、Video 和 Snapshot 不会被复制或删除。
+
+## 三级 Field Taxonomy
+
+字段选择继续使用统一三级结构：
 
 ```text
-视频客观数据
-+ 视频分类 / 品牌筛选
-+ 时间范围
-+ Count / Sum / Average / Median / Max / Min
-        ↓
-每位 Creator 一个数值
+一级
+├─ 客观数据
+├─ 标签 / 关系
+├─ 构建指标
+└─ 比值指标
 ```
 
-典型示例：
+二级由 Core 业务维度和 Workspace / 用户分组共同生成，三级是稳定 Field ID。
 
-- 近 90 天 UgPhone 视频播放中位数
-- 近 30 天竞品视频数量
-- 全部日常视频平均播放量
-- 近 365 天视频评论数最大值
+Workspace 还可以动态向字段注册表提供：
 
-### 比值指标
+- `business__<metric_key>` 商业指标
+- `relationship__<type>__<status>` Creator Relationship
+- Workspace Taxonomy 视频筛选项
 
-比值指标运行在 Creator 粒度。
+Cloud Phone Growth 中保留的旧字段只作为兼容别名，保证既有指标和规则能够继续执行。
 
-分子和分母可引用：
+## 二次指标与规则隔离
 
-- Creator 数值型客观数据；
-- 已构建指标。
+`secondary_metrics` 现在按当前 Workspace 持久化到 `workspace_settings`。
 
-例如：
+Saved Views 也按 Workspace 隔离。切换 Workspace 后不会看到其他 Workspace 的规则视图配置，但共享 Creator / Video 基础事实。
+
+## 品牌与分类
+
+分类器从当前 Workspace 读取品牌配置。
+
+- 通用 Workspace 不需要任何预设品牌。
+- Brand Workspace 可维护自己的 Brand / Brand Group。
+- Cloud Phone Growth 使用兼容品牌配置，以保证既有分类结果不丢失。
+
+## 商业数据
+
+`creator_business_metrics` 仍是通用事实表，`metric_key` 可以是任意业务指标。
+
+Workspace 通过 `business_metric_definitions` 声明哪些指标属于当前项目，例如：
+
+- Revenue
+- GMV
+- Orders
+- New Users
+- Installs
+- Leads
+- Trials
+
+二次指标只暴露当前 Workspace 定义的业务指标。
+
+## Data Contract
+
+统一来源层继续使用：
 
 ```text
-UgPhone 视频播放中位数 ÷ 日常视频播放中位数
+fact < derived < ai < human
 ```
 
-### 指标与规则列表
-
-- 已构建指标：**10 条 / 页**
-- 规则列表：**10 条 / 页**
-- 列表区域内部使用纵向滚动。
-- 左侧 Builder 仍然是高度锚点：
-  - 已构建指标高度跟随指标构建器；
-  - 规则列表高度跟随规则 / 标签构建器。
-- 右侧列表不会反向把左侧构建器拉高。
-- 搜索、排序、分页不会改变外部 Card 高度。
-- Builder 内容或窗口尺寸变化后会自动重新同步对应列表高度。
-
-### V3.10.7 规则 / 标签构建器固定工作区
-
-V3.10.7 重新实现了规则区的滚动与固定外壳逻辑，采用**固定条件 viewport + 非收缩条件行 + 冻结外壳**：
-
-- 条件 viewport 固定为约 **3 条完整条件**的高度；
-- 每一条条件设置 `flex-shrink:0`，不会为了塞进 viewport 而被压扁；
-- 第 4 条及以后只在 `ruleConditions` 内部通过**垂直滚动条**查看；
-- 垂直滚动条使用 `overflow-y:scroll` 并预留 scrollbar gutter；
-- 不再给每条条件单独生成横向滚动条；
-- 如窗口过窄，只在整个条件 viewport 底部出现一个共享横向滚动；
-- `添加条件`紧跟条件 viewport；
-- `保存规则 / 清空`紧跟其后，不再使用 `margin-top:auto` 制造中间空白；
-- 规则构建器在结构完成后根据真实内容测量一次高度并冻结；
-- 条件数量变化不会重新计算外壳高度；
-- `规则列表`冻结为完全相同高度；
-- 规则卡片继续保持自然高度并禁止 stretch；
-- 规则列表继续 **10 条 / 页**。
-
-核心布局：
-
-```text
-冻结的 Rule Builder 外壳
-├─ 规则元数据
-├─ 条件标题
-├─ ruleConditions：固定约 3 行高度
-│  ├─ 条件 1
-│  ├─ 条件 2
-│  ├─ 条件 3
-│  └─ 条件 4+ → 内部纵向滚动
-├─ 添加条件
-├─ 保存规则 / 清空
-└─ 说明
-```
-
-条件数量只影响内部 `scrollHeight`，不影响外壳高度。
-
----
-
-## Job Engine
-
-长耗时任务由持久化 Job Engine 管理，而不是每次点击无限创建线程。
-
-支持：
-
-- 持久化 `job_runs`
-- YouTube / AI / Local 等资源队列
-- 并发限制
-- 任务进度
-- 取消
-- 重试
-- checkpoint
-- 可恢复任务安全恢复
-- Dashboard 重启后任务状态恢复
-
-任务中心只是 UI，执行状态保存在数据库中。
-
----
-
-## 可重复执行与 AI
-
-### Run Specification
-
-AI Search / Ask Hub 等任务保存结构化运行规格，包括：
-
-- 原始请求
-- 最终计划
-- Query
-- Fit Criteria
-- 执行参数
-- 父子 Run 关系
-
-复制并重新执行时可以复用已经冻结的最终条件，而不是重新让 Planner 改写任务定义。
-
-### Data Contract
-
-系统将判断来源区分为：
-
-- `fact`：客观事实
-- `derived`：确定性计算结果
-- `ai`：AI 判断
-- `human`：人工判断
-
-默认有效值优先级：
+有效值优先级：
 
 ```text
 human > ai > derived > fact
 ```
 
-因此人工复核不会被后续自动判断无意覆盖。
+Workspace 只改变业务上下文，不改变事实审计原则。
 
-### Creator Intelligence
+## Job Engine 与 Run Specification
 
-Creator Intelligence Engine 采用：
+后台长任务继续使用持久 Job Engine，包括：
 
-```text
-SQLite facts
-→ 确定性 KPI / SQL
-→ 事实上下文
-→ LLM 解释与行动建议
-```
+- 资源队列
+- 进度
+- 取消
+- 重试
+- Checkpoint
+- 可恢复任务
 
-AI 不负责重新制造基础事实。
+可重复 AI / Discovery 工作流继续保存 Run Specification，避免重新执行时条件漂移。
 
-AI 功能是可选模块；不启用 AI 仍可正常使用 Creator 数据中心的核心能力。
-
----
-
-## 数据库与迁移
-
-### 本地事实源
+## 数据库
 
 默认数据库：
 
@@ -259,178 +183,103 @@ AI 功能是可选模块；不启用 AI 仍可正常使用 Creator 数据中心�
 data/creator_hub.sqlite
 ```
 
-当前数据库 Schema Version：
+当前 Schema：
 
 ```text
-17
+18
 ```
 
-核心持久数据包括但不限于：
+Schema 迁移由 Migration Runner 管理，不应手工修改数据库结构。
 
-- Creators
-- Creator snapshots
-- Videos
-- Video snapshots
-- Discovery runs / hits / Creator results
-- 视频系统分类与人工复核
-- Creator tags
-- 商业表现
-- Saved Views
-- Job runs
-- AI runs / findings / evidence
-- Run specifications
-- Data assertions
-- 应用设置
-- 二次指标 / 规则配置
-- Schema migration history
 
-### Migration Runner
+## V4.0.2 本机交互服务地址修复
 
-Schema 迁移通过 `schema_migrations` 管理。
+交互 Dashboard 的本机监听地址统一为 **`127.0.0.1:8765`**。本版清理历史遗留的无效 Host `.1`：
 
-升级时统一运行：
+- `hub.py serve` 默认 `--host 127.0.0.1`；
+- `start-dashboard.cmd` 显式使用 `--host 127.0.0.1 --port 8765`；
+- `doctor` 的端口探测绑定 `127.0.0.1`，并返回 `http://127.0.0.1:8765/`；
+- `serve_dashboard()` 默认 Host 改为 `127.0.0.1`；
+- 本机敏感 API 的来源校验允许 `127.0.0.1` / `::1`；
+- Setup、Dashboard 提示、导出提示和安装/架构文档中的地址同步修正。
 
-```text
-upgrade.cmd
-```
+Schema 仍为 18，不修改 Creator、Video、Workspace、指标、规则或其他业务数据。
 
-流程包括：
+## Dashboard 构建性能
 
-1. 创建一致性 SQLite 升级前备份；
-2. 执行数据库 Schema / Migration；
-3. 运行自检；
-4. 清理旧 Dashboard 输出；
-5. 重新构建 Dashboard。
+当前 Dashboard Builder 针对大数据库全量重建进行了以下优化：
 
-不要通过手工删表或修改 SQLite Schema 的方式升级。
+- **Metric Cube 去 N+1**：视频事实与当前 Workspace Taxonomy 各批量读取一次，再按 `channel_id` 在 Python 内分组；不再对每位 Creator 单独执行视频查询和 Taxonomy 查询。
+- **Creator Detail 批量加载**：全部视频与 Creator Tag 一次读取；Snapshot 历史按 32 位 Creator 分块读取，不再对每位 Creator 单独执行窗口查询。
+- **Creator Detail 增量缓存**：同一版本后续重建会对未变化的 Creator Detail HTML 直接命中缓存，只重建发生数据变化的 Creator。
+- **Metric Cube 缓存**：`metric_base.js` 根据视频、分类、Taxonomy、Creator Relationship 与 Workspace 定义生成签名；数据未变化时直接复用。
+- **不再删除整个 Dashboard 输出目录**：升级重建保留可复用缓存，同时构建器会主动删除已经不存在的 Creator 页面。
+- **全过程进度输出**：控制台显示 `[Dashboard 1/8]` 至 `[Dashboard 8/8]`、Creator 页面进度、Metric Cube 进度、缓存命中及累计耗时。
 
----
+首次建立 Creator Detail 缓存时仍需要完成一次页面重建；但查询已改为批量方式，Metric Cube 的旧 N+1 路径已被移除。后续同版本重建会显著减少重复工作。
 
-## 安装
 
-### 环境要求
-
-- Windows 10 / 11
-- Python 3.10+
-- YouTube Data API v3 API Key
-- 网络连接
-- **不需要 Node/npm**
+## 安装与升级
 
 ### 首次安装
-
-在项目根目录运行：
 
 ```bat
 setup.cmd
 ```
 
-首次安装会完成：
-
-- Python 环境检查
-- 安装 `requirements.txt`
-- 初始化 SQLite
-- 配置 / 检查 YouTube API Key
-- 自检
-- 构建 Dashboard
-
-### 已有环境升级
+### 覆盖升级
 
 ```bat
 upgrade.cmd
 ```
 
-### 日常启动
+升级会：
 
-推荐使用交互模式：
+1. 创建一致性 SQLite 备份；
+2. 覆盖当前源码；
+3. 执行 Migration Runner；
+4. 初始化 / 迁移 Workspace；
+5. 运行 self-check；
+6. 清理并重建 Dashboard。
+
+### 日常启动
 
 ```bat
 start-dashboard.cmd
 ```
 
-交互模式支持数据库写入、抓取、筛选、AI、批量操作和完整导出。
+## 覆盖包命名规范
 
-如果只需要查看已生成的静态快照：
-
-```bat
-open-static-dashboard.cmd
-```
-
-静态模式是只读模式，不能替代日常交互 Dashboard。
-
----
-
-## API Key 与敏感信息
-
-### YouTube API Key
-
-使用 Windows 用户环境变量：
+从本版本起，覆盖包内部的升级辅助文件全部使用稳定文件名：
 
 ```text
-YOUTUBE_API_KEY
+upgrade.cmd
+apply_upgrade.py
+README.md
+PATCH_MANIFEST.json
+overlay/
 ```
 
-推荐运行：
+不再生成带版本号的 `apply_*`、额外 README、Patch Manifest 或补丁脚本文件，因此下一次覆盖无需手工清理历史升级辅助文件。
 
-```bat
-scripts\set-api-key.cmd
+升级器还会自动清理由早期覆盖包遗留的版本化升级辅助文件。
+
+## API
+
+Workspace API：
+
+```text
+POST /api/v1/workspaces/list
+POST /api/v1/workspaces/context
+POST /api/v1/workspaces/create
+POST /api/v1/workspaces/set-active
 ```
 
-### AI API Key
+其他新 API 消费者仍优先使用 `/api/v1`。
 
-AI 使用独立的本机密钥配置，不应写入 GitHub 仓库。
+## GitHub 与本地数据分离
 
-可以运行：
-
-```bat
-setup-ai.cmd
-```
-
-### 检查环境
-
-```bat
-scripts\python-run.cmd hub.py doctor
-```
-
-在线验证 YouTube API Key：
-
-```bat
-scripts\python-run.cmd hub.py doctor --online
-```
-
----
-
-## 常用命令
-
-```bat
-scripts\python-run.cmd hub.py init
-scripts\python-run.cmd hub.py doctor
-scripts\python-run.cmd hub.py doctor --online
-scripts\python-run.cmd hub.py dashboard
-scripts\python-run.cmd hub.py serve
-scripts\python-run.cmd hub.py backup
-scripts\python-run.cmd hub.py restore
-scripts\python-run.cmd hub.py db-health
-scripts\python-run.cmd hub.py monitoring-health
-scripts\python-run.cmd hub.py import-business
-scripts\python-run.cmd hub.py metric-config-export
-scripts\python-run.cmd hub.py metric-config-import
-```
-
-完整命令以：
-
-```bat
-scripts\python-run.cmd hub.py --help
-```
-
-为准。
-
----
-
-## GitHub 仓库与本地数据分离
-
-本仓库是 **源码仓库**。
-
-以下内容不应提交：
+以下内容不得提交：
 
 ```text
 data/creator_hub.sqlite
@@ -442,59 +291,34 @@ backups/
 _upgrade_backups/
 .env*
 API Key
-CSV / XLSX / XLSM 业务文件
+CSV / XLSX 业务文件
 虚拟环境
 缓存
 日志
 ```
 
-源码包中的：
-
-```text
-data/
-output/
-exports/
-```
-
-只保留 `.gitkeep`，用于维持目录结构。
-
----
-
 ## 跨设备迁移
 
-如果要把当前业务数据迁移到另一台电脑：
+Creator / Video 等业务数据仍以 SQLite 为主。
 
-1. 停止正在运行的 Dashboard 和所有写库任务；
-2. 使用项目备份功能生成一致性数据库备份，或在完全停止写入后复制：
-   ```text
-   data/creator_hub.sqlite
-   ```
-3. 在新设备部署同版或更新版源码；
-4. 将数据库放回：
-   ```text
-   data/creator_hub.sqlite
-   ```
-5. 重新配置 YouTube API Key 和 AI API Key；
-6. 运行：
-   ```bat
-   upgrade.cmd
-   ```
-7. 再运行：
-   ```bat
-   start-dashboard.cmd
-   ```
+迁移建议：
 
-复制 SQLite 是**数据快照迁移**，不是两台设备之间的实时双向同步。
+1. 停止 Dashboard 和写库任务；
+2. 创建一致性数据库备份；
+3. 在新设备部署相同或更新版本源码；
+4. 将数据库放到 `data/creator_hub.sqlite`；
+5. 重新配置本机 API Key；
+6. 运行 `upgrade.cmd`；
+7. 启动 Dashboard。
 
----
+Workspace、品牌、Taxonomy、关系、二次指标配置等都保存在 SQLite 中，因此会随数据库迁移。
 
 ## 项目结构
 
 ```text
 YouTube_Creator_Data_Hub/
-├─ agents/
-│  └─ openai.yaml
 ├─ config/
+│  ├─ workspace_templates.json
 │  ├─ brands.json
 │  ├─ geography.json
 │  ├─ query_packs.json
@@ -503,57 +327,28 @@ YouTube_Creator_Data_Hub/
 │  ├─ ai/
 │  ├─ services/
 │  ├─ static/
-│  ├─ dashboard.py
-│  ├─ db.py
+│  ├─ workspace.py
 │  ├─ field_registry.py
-│  ├─ jobs.py
 │  ├─ metric_workspace.py
 │  ├─ migrations.py
+│  ├─ dashboard.py
 │  ├─ server.py
 │  └─ service.py
-├─ data/
-│  └─ .gitkeep
 ├─ docs/
-├─ exports/
-│  └─ .gitkeep
-├─ output/
-│  └─ .gitkeep
 ├─ scripts/
-├─ CHANGELOG.md
-├─ PACKAGE_MANIFEST.json
 ├─ README.md
 ├─ SKILL.md
 ├─ VERSION
 ├─ hub.py
-├─ requirements.txt
 ├─ setup.cmd
-├─ setup-ai.cmd
 ├─ start-dashboard.cmd
 └─ upgrade.cmd
 ```
 
----
-
-## 进一步文档
-
-详细设计和操作说明位于：
-
-- `docs/ARCHITECTURE.md` — 系统架构
-- `docs/INSTALLATION.md` — 安装与首次运行
-- `docs/OPERATIONS.md` — 日常维护、备份、监控
-- `docs/SECONDARY_METRICS.md` — 二次指标体系
-- `docs/DATA_DICTIONARY.md` — 数据字典
-- `docs/DISCOVERY_SCORING.md` — 博主发现评分
-- `docs/QUERY_EXPANSION.md` — Query Expansion
-- `docs/AI.md` — AI 模块
-- `docs/CODEX_EXAMPLES.md` — Codex 使用示例
-
----
-
 ## 版本
 
 ```text
-YouTube Creator Data Hub
-Version: 3.10.7
-Database Schema: 17
+YouTube Creator Intelligence Hub
+Version: 4.0.2
+Database Schema: 18
 ```

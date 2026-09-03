@@ -7,7 +7,7 @@ hub.py
   ↓
 SQLite（唯一事实源）
   ├─ Python Dashboard Builder → 静态只读 Dashboard
-  └─ 本机 Python HTTP（.1:8765）→ 交互 Dashboard
+  └─ 本机 Python HTTP（127.0.0.1:8765）→ 交互 Dashboard
        ├─ 博主客观事实 / 视频分类
        ├─ 二次指标预聚合基础数据
        ├─ 博主发现搜索与写入
@@ -16,7 +16,7 @@ SQLite（唯一事实源）
 
 ## 原则
 
-1. 不需要 Node/npm/Next.js；交互模式使用本机 Python HTTP 服务 `.1:8765`，静态模式不启动服务。
+1. 不需要 Node/npm/Next.js；交互模式使用本机 Python HTTP 服务 `127.0.0.1:8765`，静态模式不启动服务。
 2. Dashboard 是可删除、可重建的缓存，不是数据库。
 3. 视频分类由 Skill 自动运行；人工分类表仅用于修正错误。
 4. 二次指标属于分析层，不回写事实表；Creator 粒度事实/标签与 Video 粒度事实必须分离，Video 数据只有聚合后才能成为 Creator 构建指标。
