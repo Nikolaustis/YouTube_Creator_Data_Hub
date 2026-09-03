@@ -1,7 +1,7 @@
 ---
 name: youtube-creator-data-hub
 description: Local-first YouTube Creator Intelligence platform. Use SQLite global facts plus Workspace-scoped brands, taxonomies, relationships, business metrics, discovery profiles, constructed metrics and rules. Supports discovery, capture, monitoring, review, export, typed FastAPI integrations and optional evidence-grounded AI.
-version: 4.1.0
+version: 4.2.0
 ---
 # YouTube Creator Intelligence Hub
 
@@ -14,7 +14,7 @@ version: 4.1.0
 - Long-running work uses the persistent Job Engine. Resumable jobs require durable checkpoint writes; persistence degradation is surfaced, never silently ignored.
 - Schema changes use the Migration Runner. Never edit an existing business SQLite schema manually.
 - Single-row and batch actions must remain semantically consistent.
-- New integrations use the typed FastAPI `/api/v1` surface. The legacy Dashboard server is compatibility-only during migration.
+- New integrations use the typed FastAPI `/api/v1` surface. The default Dashboard must remain domain-neutral; compatibility semantics are opt-in and must not leak into generic Workspaces.
 - Production databases, API keys, exports, backups, caches and logs never enter Git.
 
 ## Routing
@@ -24,7 +24,7 @@ version: 4.1.0
 - Synthetic public demo: `create-demo.cmd`, then `start-demo.cmd`.
 - Benchmark: `run-benchmark.cmd` or `python -m creator_hub.portfolio.benchmark`.
 - AI evaluation: `run-ai-eval.cmd` or `python -m creator_hub.portfolio.ai_eval`.
-- Repository engineering checks: `pytest`, `ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/repo_hygiene.py`, `python scripts/check_core_portability.py`.
+- Repository engineering checks: `pytest`, `ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/check_public_surface_neutrality.py scripts/repo_hygiene.py`, `python scripts/check_core_portability.py`, `python scripts/check_public_surface_neutrality.py`.
 
 ## Creator workflows
 

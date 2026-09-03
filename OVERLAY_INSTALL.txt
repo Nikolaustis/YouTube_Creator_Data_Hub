@@ -1,11 +1,11 @@
-YouTube Creator Intelligence Hub 4.1.0 engineering overlay
+YouTube Creator Intelligence Hub 4.2.0 neutral-surface overlay
 
-1. Back up the current project directory or commit your current Git state.
+1. Back up the current project directory or commit the current Git state.
 2. Extract this ZIP into the repository root and allow file replacement.
 3. Run upgrade.cmd.
-4. For the public GitHub repository, commit the deletions produced by scripts/repo_hygiene.py.
-   GITHUB_DELETE_LIST.txt documents historical tracked artifacts that should disappear.
-5. Run setup-demo.cmd to create the synthetic public demo without API keys.
-6. Run start-api.cmd to inspect the typed API at http://127.0.0.1:8766/docs.
+4. The upgrade keeps production Creator/Video facts and Schema 18, but switches the default active Workspace away from compatibility semantics.
+5. Historical compatibility metric configuration is preserved in its compatibility Workspace; generic Workspace entries removed by sanitation receive a one-time backup key.
+6. For the public repository, commit file deletions produced by scripts/repo_hygiene.py.
+7. Run setup-demo.cmd to rebuild and validate the fully synthetic neutral public demo.
 
-The overlay does not include or replace the production SQLite database. Database schema remains 18.
+The overlay does not include or replace the production SQLite database.

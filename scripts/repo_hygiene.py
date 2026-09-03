@@ -17,6 +17,9 @@ def offenders() -> list[Path]:
     patches = ROOT / "patches"
     if patches.exists():
         found.append(patches)
+    old_release = ROOT / "docs" / "RELEASE_NOTES_4.1.0.md"
+    if old_release.exists():
+        found.append(old_release)
     return sorted(set(found), key=lambda p: p.as_posix())
 
 

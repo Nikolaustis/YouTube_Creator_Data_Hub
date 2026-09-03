@@ -60,9 +60,9 @@ Brands, brand groups, taxonomies, Creator relationships, business metric definit
 - **Synthetic demo, benchmark and AI-evaluation harnesses** let reviewers validate the project without access to private data.
 - **CI on Windows + Ubuntu** tests multiple Python versions, portability rules and offline AI-evaluation contracts.
 
-## Compatibility migration status
+## Neutral-surface status
 
-V4.1 uses a **strangler migration** rather than rewriting the working Dashboard in one release. FastAPI, monitoring, the field registry and AI local-query tools are Workspace-driven and guarded by a portability test. Historical `dashboard.py`, `metric_workspace.py` and parts of `service.py` still retain V3 compatibility aliases so existing databases, saved views and cloud-phone workflows keep working. New domain-specific logic belongs in `creator_hub/compat/` or Workspace templates. See `docs/ARCHITECTURE.md`.
+V4.2 completes the **neutral public/default surface**. The active generic Workspace no longer inherits unscoped historical metrics, browser state is Workspace-scoped, default Dashboard columns and examples are domain-neutral, and compatibility templates are hidden from the public template catalog. Historical compatibility data is preserved in an opt-in compatibility Workspace instead of being auto-activated.
 
 ## Reproducible evidence
 
@@ -89,8 +89,9 @@ The evaluator reports structured-output rate, evidence coverage and unsupported-
 ```bash
 pip install -r requirements-dev.txt
 pytest
-ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/repo_hygiene.py
+ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/check_public_surface_neutrality.py scripts/neutralize_public_surface.py scripts/repo_hygiene.py
 python scripts/check_core_portability.py
+python scripts/check_public_surface_neutrality.py
 ```
 
 ## Main commands
@@ -119,7 +120,8 @@ Git must not contain production SQLite files, API keys, exports, backups, logs, 
 - `docs/AI_EVALUATION.md` — grounding evaluation
 - `docs/OPERATIONS.md` — production operations
 - `docs/WORKSPACES.md` — Workspace model
+- `docs/RELEASE_NOTES_4.2.0.md` — neutral-surface migration notes
 
 ## Version
 
-`4.1.0` · Database Schema remains `18`; this engineering release does not require rewriting production Creator/Video facts.
+`4.2.0` · Database Schema remains `18`; this release changes presentation/config scoping, not production Creator/Video facts.

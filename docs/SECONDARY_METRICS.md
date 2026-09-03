@@ -1,160 +1,26 @@
+# Secondary Metrics
 
-## 三级 Field Taxonomy 与 Field Picker（v3.10.0）
+Secondary Metrics converts reusable Creator/Video facts into Workspace-specific analytical fields without embedding a customer, brand, or industry into Core.
 
-二次指标、博主库筛选/排序、规则构建和比值指标构建共享同一字段目录。每个字段使用稳定 ID，并携带分组、数据粒度、数据类型以及是否允许筛选/排序/比值引用等元数据。
+## Data grain
 
-字段选择采用固定三级目录：
+- **Creator facts**: subscriber count, channel views, stored videos, freshness, Workspace business metrics.
+- **Creator relationships**: Workspace-scoped relationship predicates such as partnership status.
+- **Video facts**: views, likes, comments, duration and video count.
+- **Workspace taxonomy**: configurable video labels supplied by the active Workspace.
+- **Constructed metrics**: aggregate video facts after taxonomy/brand/time filtering.
+- **Ratio metrics**: divide two Creator-grain numeric fields or constructed metrics.
 
-1. 一级：客观数据 / 博主标签 / 构建指标 / 比值指标。
-2. 二级：客观数据按基础信息、地理位置、频道规模、内容与品牌、内容表现、商业数据、Discovery/AI、数据健康、视频客观数据组织；构建指标/比值指标直接读取用户在指标构建器中设置的分组，空分组统一显示“未分组”。
-3. 三级：具体稳定 Field ID。
+## Generic examples
 
-常规选择通过三级联动框完成；跨目录搜索、最近使用与收藏只是快捷入口。Saved View 保存稳定 Field ID，因此仅修改字段显示名称不会使既有视图失效。
+- `近90天教程视频播放中位数`
+- `产品评测视频数量`
+- `近30天视频平均互动量`
+- `Revenue ÷ 本地已存视频数`
+- `教程视频播放中位数 ÷ 全部视频播放中位数`
 
-# 二次指标工作区 v1.0
+The metric builder must not assume a particular primary brand or competitor. Brand and taxonomy filter options are derived from the active Workspace.
 
-二次指标页面属于运营分析层，不改变 YouTube Fact Store。v1.0.0 的核心原则是：**先明确数据粒度，再做聚合。**
+## Workspace isolation
 
-## 1. 数据粒度
-
-### 博主客观数据（Creator grain）
-
-每位 Creator 已经只有一个值，例如：
-
-- 订阅数
-- 频道累计播放量
-- YouTube 视频总数
-- 本地已存视频数
-- UgPhone / 竞品 / 日常 / LDCloud / RedFinger / VSPhone 视频数量
-
-这些值可以直接用于筛选、排序、规则和比值。**不得再对单个 Creator 的这些值执行 Average / Median / Sum。**
-
-### 博主标签（Creator boolean grain）
-
-每位 Creator 的 0/1 身份，例如：
-
-- 合作过博主
-- 疑似不再合作（历史合作过 + 仍在监控 + 数据新鲜 + 连续30天无新的 UgPhone 视频）
-- 未合作博主
-- LDCloud 合作博主
-- RedFinger 合作博主
-- VSPhone 合作博主
-- UgPhone 与竞品均合作博主
-
-博主标签只允许“存在 / 不存在”判断，不属于数值指标，不进入聚合器。
-
-### 视频客观数据（Video grain）
-
-每条视频的：
-
-- 视频条目
-- 当前播放量
-- 点赞数
-- 评论数
-- 时长
-- 发布时间
-
-视频的系统/最终分类和品牌可作为筛选维度。
-
-## 2. 构建指标
-
-指标构建器只处理视频客观数据：
-
-```text
-视频事实
-+ 视频分类/品牌筛选
-+ 时间窗口
-+ Count / Sum / Average / Median / Max / Min
-        ↓
-每位 Creator 一个构建指标
-```
-
-示例：
-
-- 近90天 UgPhone 视频播放中位数
-- 近30天 RedFinger 视频数量
-- 全部日常视频平均播放量
-- 近365天视频评论数最大值
-
-## 3. 比值指标
-
-比值指标位于 Creator 粒度。分子和分母只能选择：
-
-- 博主数值型客观数据；
-- 已构建指标。
-
-例如：
-
-```text
-UgPhone视频播放中位数 ÷ 日常视频播放中位数
-```
-
-或：
-
-```text
-UgPhone视频数量 ÷ 本地已存视频数
-```
-
-比值指标不再直接定义视频过滤、时间范围或聚合方式；这些步骤应先生成构建指标。
-
-## 4. 时间范围
-
-视频构建指标支持：
-
-- 全部时间
-- 近7天
-- 近30天
-- 近60天
-- 近90天
-- 近180天
-- 近365天
-- 指定开始日期 + 结束日期
-
-预设时间由 Python 预聚合立方体直接计算。精确日期范围由交互 Dashboard 调用 Python/SQLite 聚合并保存每位 Creator 的结果，不将几十万条原始视频发送到浏览器。
-
-## 5. 规则与筛选
-
-规则和 Creator 结果筛选只使用四类 Creator 级对象：
-
-1. 博主客观数据
-2. 博主标签
-3. 构建指标
-4. 比值指标
-
-博主标签提供“存在 / 不存在”；其他数值指标使用 `> / >= / < / <= / = / !=`。
-
-第一条条件不显示布尔连接词；从第二条开始，每条可独立选择：
-
-- AND
-- OR
-- NOT
-
-## 6. 大数据实现
-
-浏览器不读取全部视频。Dashboard 构建时由 Python 为每位 Creator 预聚合：
-
-- 全部视频；
-- 最终分类（系统识别，人工修正优先）；
-- 品牌；
-- 全部时间 / 近7 / 30 / 60 / 90 / 180 / 365天；
-- 播放量 / 点赞 / 评论 / 时长的 count、sum、avg、median、min、max。
-
-最终只输出 Creator 级事实和聚合立方体到 Dashboard。
-
-## 7. v0.x 配置迁移
-
-v1.0.0 会尝试迁移旧浏览器配置：
-
-- `objective` 规则类型 → `creator_fact`
-- `aggregate_label` → `creator_label`
-- 旧视频客观数据构建指标继续保留
-- 把博主标签当作构建指标的错误配置会移除；引用它们的规则尽量改为直接引用对应博主标签
-- 旧“分子视频聚合 ÷ 分母视频聚合”比值会迁移为两个隐藏构建指标，再由比值指标引用
-
-因此 v1.0.0 的新建指标不会再混用 Creator 与 Video 粒度。
-
-## v2.1.0 configuration persistence and dependency safety
-
-In interactive mode, the complete Secondary Metrics workspace (constructed metrics, ratio metrics, rules and saved result filters) is stored in SQLite `app_settings.secondary_metrics`. Existing browser workspaces are migrated only when SQLite does not yet contain a saved configuration. Static read-only mode can still use the browser-local fallback.
-
-Metrics and rules may carry a group, business description, created time and updated time. Before deletion, the Dashboard checks dependencies from ratio metrics, rules and active filters. A referenced metric cannot be deleted until those dependencies are removed or changed.
+Metric configuration is stored under `workspace_settings.secondary_metrics`. A generic Workspace with no configuration starts with an empty metric/rule set and must not inherit historical global configuration or browser state from another Workspace.

@@ -1,16 +1,30 @@
 {
-  "name": "youtube-creator-intelligence-hub-engineering-overlay",
-  "version": "4.1.0",
-  "type": "cover-package",
-  "database_included": false,
+  "name": "youtube-creator-intelligence-hub-neutral-surface-overlay",
+  "version": "4.2.0",
   "schema_version": 18,
+  "database_included": false,
   "upgrade_compatible": true,
+  "behavior_changes": [
+    "generic workspaces do not inherit unscoped historical metric configuration",
+    "browser metric state is namespaced by workspace",
+    "compatibility templates are hidden and never auto-activated",
+    "dashboard default examples, relationships, result columns and detail sorting are domain-neutral",
+    "synthetic demo includes a public-surface neutrality gate"
+  ],
+  "runtime_modified_files": [
+    "creator_hub/dashboard.py",
+    "creator_hub/metric_workspace.py",
+    "creator_hub/static/metrics_workspace.js",
+    "creator_hub/workspace.py",
+    "config/workspace_templates.json"
+  ],
   "delete_after_apply": [
     "__pycache__/",
     "creator_hub/**/__pycache__/",
     "scripts/__pycache__/",
     "*.pyc",
-    "patches/"
+    "patches/",
+    "docs/RELEASE_NOTES_4.1.0.md"
   ],
   "files": [
     {
@@ -30,8 +44,8 @@
     },
     {
       "path": ".github/workflows/ci.yml",
-      "size_bytes": 1030,
-      "sha256": "8585bda3cfe76aa4abb132bba403cae33493dbde6e653d241ca67cd62a65e549"
+      "size_bytes": 1218,
+      "sha256": "af22ab5e0b64eef198e495988d22a2e47ef88f075a10f104f618a6bfc42ceac2"
     },
     {
       "path": ".gitignore",
@@ -45,18 +59,18 @@
     },
     {
       "path": "GITHUB_DELETE_LIST.txt",
-      "size_bytes": 259,
-      "sha256": "a8cdd53f37a0493c70eec6b94c69e4f0e4b2dc285c9495b8fbebdc77b2664d50"
+      "size_bytes": 287,
+      "sha256": "6d30847df6c93f08fda9ad21621b92b0f890d0e1d9861e9fe0fa804f6a6317ce"
     },
     {
       "path": "OVERLAY_INSTALL.txt",
-      "size_bytes": 665,
-      "sha256": "b0ebbc24a6a21681771e1f97b91776966de3799af2f9f43f159f0951ec3482e6"
+      "size_bytes": 797,
+      "sha256": "18f2a72fa4ecd228735071835ccab688c3162c75c664a8734ee15b4c2ccbc750"
     },
     {
       "path": "README.md",
-      "size_bytes": 5886,
-      "sha256": "19a3e3b6797b641988f01617fe98289f8e29012e1cf2db65c02560c9ddf32a20"
+      "size_bytes": 5974,
+      "sha256": "6990d9a2e64f1768d1dbf2b0bfaefa12f7c7cfcd132d5b49b028f544da1d1e04"
     },
     {
       "path": "SECURITY.md",
@@ -65,28 +79,28 @@
     },
     {
       "path": "SKILL.md",
-      "size_bytes": 3391,
-      "sha256": "05cfd52a56439cf4a6c32b271276e860d961654d76e4801080832dc7adabc217"
+      "size_bytes": 3547,
+      "sha256": "c901b5d16d95b8710406ace750c26f295fc32550205991b39ed8e6e109598bec"
     },
     {
       "path": "VERSION",
       "size_bytes": 6,
-      "sha256": "3b10b6ad566eadbcacadb33c591f1ec629593d6adf47442e56e0f61996829ef7"
+      "sha256": "8fb33dadbe981cf5847df269c10c2a3fe107f2b269d5ccb6db37d1f61ffc3bba"
     },
     {
       "path": "apply_upgrade.py",
-      "size_bytes": 1874,
-      "sha256": "25f7166876c0cc8f053418b39e92b28f330d0f5b6d49e4beb1d195df695a4155"
+      "size_bytes": 3108,
+      "sha256": "60ba309d806398257e6530cb8860dab7bf1f9a76660fed4896acabaa6c0b43ad"
     },
     {
       "path": "create-demo.cmd",
-      "size_bytes": 228,
-      "sha256": "c37e9707ed06af86cbfa23d4a4938ab558a9f2a3a18290f519110030494f6180"
+      "size_bytes": 372,
+      "sha256": "4956f4dc465406648babd0d41b4ba92479928248afbbaa45c6c0643168544faf"
     },
     {
       "path": "creator_hub/__init__.py",
       "size_bytes": 22,
-      "sha256": "8de809318b925bdd152a2328b5574d01a901bd854f8ab9be039a1ec8956e847f"
+      "sha256": "a54e7a6438c20e751b20d7b7f6162e2971f2f5423d4dfe318d6827c419711039"
     },
     {
       "path": "creator_hub/ai/workspace_tools.py",
@@ -125,8 +139,8 @@
     },
     {
       "path": "creator_hub/field_registry.py",
-      "size_bytes": 5664,
-      "sha256": "b6ddfccc45e8012ac69ff25b6be5236a1b158b00f21759c4b765764f249d9522"
+      "size_bytes": 5315,
+      "sha256": "406c39998eeb1bc446d4ff6ce089ab9783bf0cfa2b7bd8bfdc19c01d9aa7af47"
     },
     {
       "path": "creator_hub/jobs.py",
@@ -159,6 +173,11 @@
       "sha256": "63b90e17fa42dc2d7a1a80a05a3f4d37ee8348f745e2ecbfdf5102c845e06f76"
     },
     {
+      "path": "creator_hub/static/creator_detail.js",
+      "size_bytes": 5055,
+      "sha256": "82154c0fa88140e3f5ea809d48d402991065dca734c73f39f878cc062fcad7d0"
+    },
+    {
       "path": "docs/AI_EVALUATION.md",
       "size_bytes": 565,
       "sha256": "3779088b64860bdd6739a81ed53418981f16a33f329599a95931acb0b9d11eee"
@@ -179,6 +198,16 @@
       "sha256": "9e977fa4e3063424607cde777f4e067eb57b0689f6c333415a542db3bf1441ac"
     },
     {
+      "path": "docs/CODEX_EXAMPLES.md",
+      "size_bytes": 977,
+      "sha256": "5571cb678cd986c098e98ab8ff2d0244995d3382df1e5a35e3976730c80245a7"
+    },
+    {
+      "path": "docs/DATA_DICTIONARY.md",
+      "size_bytes": 2080,
+      "sha256": "600cbaab33ce48fb08d4139a37d5ce40c2da6257d5dd4a673c91e2b7583a4c43"
+    },
+    {
       "path": "docs/GITHUB_PUBLIC_REPO.md",
       "size_bytes": 1161,
       "sha256": "3210da59bcfae134741517392a741a45d25b30c7e9a6001a49d29b4a188af29e"
@@ -189,9 +218,14 @@
       "sha256": "dab7921a675d488439a1f3c4666f53b742505c7aefa944030b287d910308c02e"
     },
     {
-      "path": "docs/RELEASE_NOTES_4.1.0.md",
-      "size_bytes": 1150,
-      "sha256": "ba3d0f5e81abe85bd4310a698e1d745c5a0be410fa007b43ab89cb833ced83ec"
+      "path": "docs/RELEASE_NOTES_4.2.0.md",
+      "size_bytes": 1178,
+      "sha256": "e07ee1501c3e1373f2b68e5cd68f478a7a53572598902c84582047d74e8e6369"
+    },
+    {
+      "path": "docs/SECONDARY_METRICS.md",
+      "size_bytes": 1378,
+      "sha256": "8731ceeee22de3493f8a26ee7fe6bc518649314bd228c73a2b981487f5481ec8"
     },
     {
       "path": "evals/cases.jsonl",
@@ -234,14 +268,24 @@
       "sha256": "ae2dbce2df29d2b25c250bc9cd327f80dae9e5279c398989902988095185c19c"
     },
     {
+      "path": "scripts/check_public_surface_neutrality.py",
+      "size_bytes": 3352,
+      "sha256": "0695bdd338c7907587bdc6f5aaa0755719daaa07218d4c293c472a4a9035f7b9"
+    },
+    {
+      "path": "scripts/neutralize_public_surface.py",
+      "size_bytes": 33948,
+      "sha256": "517900ed0fe95f8de94429eaadaf2fd56cfb6113b06aa01a2c0673fb7386f004"
+    },
+    {
       "path": "scripts/repo_hygiene.py",
-      "size_bytes": 1470,
-      "sha256": "627d2ff6925384a8ecd0a5ddd37b8372dccd71b75efe4719a1f66aa413601b12"
+      "size_bytes": 1592,
+      "sha256": "fa15c49fd201dc8e14679dbbb1ce150ebee857159df05deab446db2179755176"
     },
     {
       "path": "setup-demo.cmd",
-      "size_bytes": 618,
-      "sha256": "5af2f4870b7f8003b78929fc76473a7911c6311527d07b474172f938b9501e2c"
+      "size_bytes": 922,
+      "sha256": "fe5207ab5b061433e3ceafbb0eb688edef2dcd9c7fd2c93e04eaa138606f4564"
     },
     {
       "path": "start-api.cmd",
@@ -280,13 +324,18 @@
     },
     {
       "path": "tests/test_monitoring_generic.py",
-      "size_bytes": 926,
-      "sha256": "b2c3e8c94ced818e9c1c2b323a495781e8e93ad30787eb4c6ffc68c6fbfe38bb"
+      "size_bytes": 646,
+      "sha256": "d10ce96c1dec426e3dbbe7dea2daea953d14263d740ad37123f4d1aeb6eb07c3"
+    },
+    {
+      "path": "tests/test_public_surface_neutrality.py",
+      "size_bytes": 317,
+      "sha256": "fcc288833c1a1b2419acea325f6d812aefeba948ece8cf1e9a24e7189014dba2"
     },
     {
       "path": "upgrade.cmd",
-      "size_bytes": 1339,
-      "sha256": "cba6efd5ed459a4f156a9c237a215c884f57ff95fbfea505ac3c021bf814eef7"
+      "size_bytes": 1473,
+      "sha256": "d680972a2b7a940f99284de1c093de615a88fc71a117f3bf6d396e4c7ed3b56e"
     }
   ]
 }

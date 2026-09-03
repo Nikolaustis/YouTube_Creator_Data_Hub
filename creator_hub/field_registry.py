@@ -26,19 +26,9 @@ LABEL_LEVEL2 = [
     {"id": "taxonomy", "name": "Workspace Taxonomy", "order": 20},
     {"id": "workflow", "name": "工作流", "order": 30},
     {"id": "monitoring", "name": "监控标签", "order": 40},
-    {"id": "compatibility", "name": "历史兼容字段", "order": 90},
     {"id": "manual", "name": "人工标签", "order": 100},
 ]
 
-LEGACY_COMPAT_KEYS = {
-    "partnered_ugphone",
-    "unpartnered_ugphone",
-    "suspected_inactive_partner",
-    "ldcloud_creator",
-    "redfinger_creator",
-    "vsphone_creator",
-    "ugphone_and_competitor",
-}
 
 
 def creator_objective_group(key: str) -> str:
@@ -74,8 +64,6 @@ def creator_label_group(key: str) -> str:
         return "relationship"
     if key.startswith("taxonomy__"):
         return "taxonomy"
-    if key in LEGACY_COMPAT_KEYS:
-        return "compatibility"
     if key.startswith("workflow_") or key == "workflow_status":
         return "workflow"
     if key.startswith("monitor_") or key in {"monitoring_enabled", "priority"}:
