@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import time
+import hashlib
+from collections import defaultdict
 from typing import Any
 
 from .db import connect, json_load
 from . import __version__
 from .metric_workspace import METRICS_BODY, write_metric_assets, build_creator_facts, build_metric_base
 from .monitoring import monitoring_data_fresh, suspected_inactive_partner
+from .workspace import WORKSPACE_BODY, active_workspace_context
 from .util import esc, fmt_int, safe_filename
 
 CSS = r'''
@@ -38,6 +42,10 @@ SECTION_NAV = {
         ("overview-summary", "数据概览"),
         ("overview-identity", "身份与监控说明"),
         ("overview-library", "博主库"),
+    ],
+    "workspace": [
+        ("workspace-overview", "当前 Workspace"),
+        ("workspace-model", "业务模型"),
     ],
     "metrics": [
         ("metrics-builder", "指标构建器"),
@@ -82,23 +90,23 @@ KEYWORD_SOURCE_NAMES = {"exact": "精确记录", "inferred": "历史推断", "un
 
 
 def _nav(active: str, include_sections: bool = True) -> str:
-    items=[("overview","index.html","总览"),("metrics","metrics.html","二次指标"),("labels","labels.html","视频分类"),("discovery","discovery.html","博主发现"),("sync","sync.html","数据更新"),("ai","ai.html","AI 助手")]
+    items=[("overview","index.html","总览"),("workspace","workspace.html","工作区"),("metrics","metrics.html","二次指标"),("labels","labels.html","视频分类"),("discovery","discovery.html","博主发现"),("sync","sync.html","数据更新"),("ai","ai.html","AI 助手")]
     parts=[]
     for k,href,name in items:
         parts.append(f'<a class="{"active" if k==active else ""}" href="{href}">{name}</a>')
         if include_sections and k==active and SECTION_NAV.get(k):
             parts.append('<div class="subnav">'+''.join(f'<a data-section-nav="{anchor}" href="#{anchor}">{label}</a>' for anchor,label in SECTION_NAV[k])+'</div>')
-    return f'<div class="side"><div class="brand">YouTube 博主数据中心<br><span class="version">v{__version__}</span></div><div class="nav">' + ''.join(parts) + '</div></div>'
+    return f'<div class="side"><div class="brand">YouTube Creator Intelligence Hub<br><span class="version">v{__version__}</span></div><div class="nav">' + ''.join(parts) + '</div></div>'
 
 
 def _page(title: str, active: str, body: str, base: str = "") -> str:
     nav = _nav(active, include_sections=not bool(base))
     if base:
-        for name in ("index.html","metrics.html","labels.html","discovery.html","sync.html","ai.html"):
+        for name in ("index.html","workspace.html","metrics.html","labels.html","discovery.html","sync.html","ai.html"):
             nav=nav.replace(f'href="{name}"',f'href="{base}{name}"')
     asset_base=f"{base}assets/" if base else "assets/"
     section_script=f'<script src="{asset_base}section_nav.js"></script>' if (not base and SECTION_NAV.get(active)) else ''
-    return f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · YouTube 博主数据中心</title><style>{CSS}</style></head><body><div class="shell">{nav}<main class="main"><div id="runtimeStatus" class="runtime-status runtime-static"><b>正在检测运行模式…</b></div>{body}<div class="footer">YouTube 博主数据中心 · 数据存储于本地 SQLite · v{__version__}</div></main></div><script src="{asset_base}export_tools.js"></script><script src="{asset_base}runtime_status.js"></script><script src="{asset_base}job_progress.js"></script><script src="{asset_base}product_ui.js"></script><script src="{asset_base}saved_views.js"></script>{section_script}</body></html>'''
+    return f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · YouTube Creator Intelligence Hub</title><style>{CSS}</style></head><body><div class="shell">{nav}<main class="main"><div id="runtimeStatus" class="runtime-status runtime-static"><b>正在检测运行模式…</b></div>{body}<div class="footer">YouTube Creator Intelligence Hub · 数据存储于本地 SQLite · v{__version__}</div></main></div><script src="{asset_base}export_tools.js"></script><script src="{asset_base}runtime_status.js"></script><script src="{asset_base}job_progress.js"></script><script src="{asset_base}product_ui.js"></script><script src="{asset_base}saved_views.js"></script>{section_script}</body></html>'''
 
 
 def _sparkline(points: list[int | None]) -> str:
@@ -179,6 +187,11 @@ def _enrich_creator_status(creators:list[dict[str,Any]], settings:dict[str,Any])
 def dashboard_stats_payload(db_path:str|Path)->dict[str,Any]:
     """Lightweight current counts for the interactive Dashboard; never rebuilds HTML."""
     with connect(db_path) as conn:
+        workspace_ctx=active_workspace_context(conn)
+        active_workspace=workspace_ctx.get("workspace") or {}
+        workspace_name=str(active_workspace.get("name") or "General Creator Intelligence")
+        workspace_meta=active_workspace.get("metadata") or {}
+        cloud_compat=workspace_meta.get("compatibility_profile")=="cloud_phone_v1"
         stats={
           'creators':conn.execute('SELECT COUNT(*) FROM creators').fetchone()[0],
           'monitored':conn.execute('SELECT COUNT(*) FROM creators WHERE monitoring_enabled=1').fetchone()[0],
@@ -195,7 +208,7 @@ def creator_facts_payload(db_path:str|Path, settings:dict[str,Any])->dict[str,An
     """Current Creator facts for live interactive refresh, without Dashboard regeneration."""
     with connect(db_path) as conn:
         creators=_enrich_creator_status(_creator_rows(conn),settings)
-        return build_creator_facts(creators)
+        return build_creator_facts(creators,conn)
 
 
 def metric_base_payload(db_path:str|Path, settings:dict[str,Any])->dict[str,Any]:
@@ -205,9 +218,77 @@ def metric_base_payload(db_path:str|Path, settings:dict[str,Any])->dict[str,Any]
         return build_metric_base(conn,creators)
 
 
+
+def _dashboard_elapsed(started:float)->str:
+    sec=max(0,int(time.perf_counter()-started))
+    return f"{sec//60:02d}:{sec%60:02d}"
+
+
+def _creator_detail_fingerprint(c:dict[str,Any], tags:list[str])->str:
+    fields=(
+        "channel_id","channel_title","handle","thumbnail_url","subscriber_count","channel_view_count",
+        "channel_video_count","stored_videos","latest_upload","last_synced_at","channel_data_at",
+        "video_metrics_at","classification_data_at","business_metric_updated_at","gmv_total",
+        "new_users_total","gmv_snapshot_at","new_users_snapshot_at","contact_scraped_at",
+    )
+    payload={k:c.get(k) for k in fields}
+    payload["tags"]=tags
+    payload["dashboard_version"]=__version__
+    return hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True,default=str).encode("utf-8")).hexdigest()
+
+
+def _load_detail_sources(conn):
+    """Load video rows and Creator tags once for the whole Dashboard build."""
+    videos_by_creator:dict[str,list[dict[str,Any]]]=defaultdict(list)
+    rows=conn.execute("""SELECT v.*,s.suggested_role,s.brands_json sbrands,s.confidence,s.evidence_json,
+                               l.human_role,l.brands_json hbrands,l.labeled_by,l.labeled_at
+                        FROM videos v
+                        LEFT JOIN label_suggestions s ON s.video_id=v.video_id
+                        LEFT JOIN video_labels l ON l.video_id=v.video_id
+                        ORDER BY v.channel_id,
+                          CASE WHEN COALESCE(l.human_role,s.suggested_role,'pending')='ugphone'
+                                    OR instr(lower(COALESCE(l.brands_json,s.brands_json,'')),'ugphone')>0
+                               THEN 0 ELSE 1 END,
+                          COALESCE(v.current_views,0) DESC,v.published_at DESC""").fetchall()
+    for rr in rows:
+        r=dict(rr)
+        videos_by_creator[str(r["channel_id"])].append(r)
+
+    tags_by_creator:dict[str,list[str]]=defaultdict(list)
+    for r in conn.execute("SELECT channel_id,tag FROM creator_tags ORDER BY channel_id,tag").fetchall():
+        tags_by_creator[str(r["channel_id"])].append(str(r["tag"]))
+    return videos_by_creator,tags_by_creator,len(rows)
+
+
+def _load_snapshot_chunk(conn, channel_ids:list[str], snap_limit:int)->dict[str,list[int|None]]:
+    if not channel_ids:
+        return {}
+    placeholders=",".join("?" for _ in channel_ids)
+    sql=f"""WITH selected AS (
+               SELECT video_id FROM videos WHERE channel_id IN ({placeholders})
+             ),
+             ranked AS (
+               SELECT vs.video_id,vs.views,vs.captured_at,
+                      ROW_NUMBER() OVER(PARTITION BY vs.video_id ORDER BY vs.captured_at DESC) rn
+               FROM video_snapshots vs JOIN selected x ON x.video_id=vs.video_id
+             )
+             SELECT video_id,views FROM ranked WHERE rn<=? ORDER BY video_id,rn DESC"""
+    rows=conn.execute(sql,tuple(channel_ids)+ (snap_limit,)).fetchall()
+    out:dict[str,list[int|None]]={}
+    for r in rows:
+        out.setdefault(str(r["video_id"]),[]).append(r["views"])
+    return out
+
 def build_dashboard(db_path: str | Path, output_dir: str | Path, settings: dict[str, Any]) -> dict[str, Any]:
+    build_started=time.perf_counter()
+    def log(stage:int,message:str):
+        print(f"[Dashboard {stage}/8] {message} · elapsed {_dashboard_elapsed(build_started)}",flush=True)
     out=Path(output_dir);creators_dir=out/'creators';creators_dir.mkdir(parents=True,exist_ok=True);limits=settings.get('dashboard',{});collection=settings.get('collection',{});full_history_limit=min(int(collection.get('max_videos_per_creator',10000)),int(collection.get('max_playlist_pages_full',200))*int(collection.get('playlist_page_size',50)))
     with connect(db_path) as conn:
+        log(1,"Loading database facts and active Workspace")
+        workspace_ctx=active_workspace_context(conn)
+        active_workspace=workspace_ctx.get("workspace") or {}
+        workspace_name=str(active_workspace.get("name") or "General Creator Intelligence")
         stats={
           'creators':conn.execute('SELECT COUNT(*) FROM creators').fetchone()[0],
           'monitored':conn.execute('SELECT COUNT(*) FROM creators WHERE monitoring_enabled=1').fetchone()[0],
@@ -238,49 +319,105 @@ def build_dashboard(db_path: str | Path, output_dir: str | Path, settings: dict[
             biz_count=int(c.get('business_metric_count') or 0)
             biz_html=((f'<div><b>GMV ${float(c.get("gmv_total")):,.2f}</b></div>' if c.get("gmv_total") is not None else '<div><b>GMV 未采集</b></div>') + (f'<div class="small">截至 {esc(str(c.get("gmv_snapshot_at") or "")[:10])} · USD 累计快照</div>' if c.get("gmv_snapshot_at") else '') + (f'<div class="small">拉新 {float(c.get("new_users_total")):,.0f} · 截至 {esc(str(c.get("new_users_snapshot_at") or "")[:10])}</div>' if c.get("new_users_total") is not None else '') if biz_count else '<span class="small">商业数据未采集（不代表0）</span>')
             rows.append(f'''<tr data-cid="{esc(c['channel_id'])}" data-search="{esc(search)}"><td><input type="checkbox" class="ov-select creator-select" value="{esc(c['channel_id'])}"></td><td class="entity-cell"><a class="link-ext" target="_blank" rel="noopener" href="{esc(channel_url)}"><b>{esc(c.get('channel_title') or c['channel_id'])}</b></a><div class="small mono">{esc(c.get('handle') or c['channel_id'])}</div><div class="small"><button class="btn" data-inspect-creator="{esc(c['channel_id'])}" data-creator-title="{esc(c.get('channel_title') or c['channel_id'])}" data-priority="{esc(priority)}" data-monitoring="{'监控中' if c.get('monitoring_enabled') else '未监控'}" data-sync-status="{esc(c.get('last_sync_status') or '—')}" data-last-sync="{esc(c.get('last_synced_at') or '—')}" data-next-sync="{esc(c.get('next_sync_at') or '—')}" data-next-retry="{esc(c.get('next_retry_at') or '—')}" data-failures="{int(c.get('consecutive_sync_failures') or 0)}" data-channel-data="{esc(c.get('channel_data_at') or '—')}" data-video-metrics="{esc(c.get('video_metrics_at') or '—')}" data-classification-data="{esc(c.get('classification_data_at') or '—')}" data-contact-data="{esc(c.get('contact_scraped_at') or '—')}">详情</button></div></td><td>{esc(country)}</td><td>{fmt_int(c.get('subscriber_count'))}</td><td>{fmt_int(c.get('channel_view_count'))}</td><td>{fmt_int(c.get('stored_videos'))}</td><td class="identity-cell">{tags}</td><td>{fmt_int(c.get('identified_ugphone'))}</td><td class="metric-cell">{biz_html}</td><td><div class="status-summary"><span class="pill priority-label">{esc(priority)}优先级</span>{mon}</div></td></tr>''')
-        body=f'''<div class="title"><div><h1>YouTube 博主数据中心</h1><div class="sub">YouTube 客观事实、历史快照、系统视频分类与数据更新时间</div></div><div class="small">最近同步：{esc(last_sync.get('finished_at') or last_sync.get('started_at') or '—')}</div></div>
+        body=f'''<div class="title"><div><h1>YouTube Creator Intelligence Hub</h1><div class="sub">当前 Workspace：{esc(workspace_name)} · Creator / Video 全局事实 + Workspace Intelligence</div></div><div class="small">最近同步：{esc(last_sync.get('finished_at') or last_sync.get('started_at') or '—')}</div></div>
         <div class="grid two anchor-section" id="overview-summary"><div class="card"><div class="metric" id="overviewMonitoredCount">{stats['monitored']:,}</div><div class="label">监控中的博主</div></div><div class="card"><div class="metric" id="overviewVideoCount">{stats['videos']:,}</div><div class="label">已存视频</div></div></div>
         <div class="section anchor-section" id="overview-identity"><div class="note"><b>身份口径：</b>存在 UgPhone 视频 → “合作过博主”；不存在 → “未合作博主”。若检测到对应竞品视频，则分别标记为“LDCloud合作博主”“RedFinger合作博主”“VSPhone合作博主”。历史上存在 UgPhone 视频、仍在监控、最近一次同步数据仍新鲜且连续30天没有新的 UgPhone 视频时，额外标记橙色“疑似不再合作”；该标签是待核查状态，不覆盖“合作过博主”的历史事实。人工修正仅覆盖系统误判。<br><b>监控口径：</b>“监控中”表示该博主进入批量同步队列；“高 / 普通 / 低 / 归档优先级”分别按配置周期判断是否到期，未到期会在批量同步时跳过。</div></div>
         <div class="section anchor-section" id="overview-library"><div class="inline spread"><h2>博主库</h2><div class="saved-view-bar"><select id="ovSavedView" class="select"><option value="">已保存视图…</option></select><button class="btn" id="ovSaveView">保存当前视图</button><button class="btn danger" id="ovDeleteView">删除视图</button><span id="ovSavedViewStatus" class="small"></span><button class="btn" id="ovExport">导出 XLSX</button></div></div><div class="actionbar"><label class="small"><input type="checkbox" id="ovSelectVisible"> 勾选当前页</label><button class="btn" id="ovSelectAllResults">全选结果</button><button class="btn" id="ovClearSelection">清除选择</button><b id="ovSelectionStatus" class="small">已选择 0 条</b><details class="action-menu"><summary class="btn">监控 ▾</summary><div class="action-menu-panel"><button class="btn" data-ov-batch="monitor_on">开启监控</button><button class="btn" data-ov-batch="monitor_off">关闭监控</button><button class="btn" data-ov-batch="resume_sync">恢复异常同步</button></div></details><details class="action-menu"><summary class="btn">优先级 ▾</summary><div class="action-menu-panel"><select id="ovBatchPriority" class="select"><option value="normal">普通优先级</option><option value="high">高优先级</option><option value="low">低优先级</option><option value="archive">归档</option></select><button class="btn primary" data-ov-batch="priority">应用优先级</button></div></details><details class="action-menu"><summary class="btn">标签 ▾</summary><div class="action-menu-panel"><input id="ovBatchTag" class="input" placeholder="标签名称"><button class="btn primary" data-ov-batch="tag">添加标签</button></div></details><span id="ovBatchStatus" class="small"></span></div><div class="toolbar"><input id="q" class="input" placeholder="搜索博主 / Handle / Channel ID / 国家 / 身份标签"></div><div class="builder-panel"><div id="ovFilterConditions"></div><div class="inline"><button class="btn" id="ovAddFilter">添加筛选条件</button><button class="btn primary" id="ovApplyFilter">应用筛选</button><button class="btn" id="ovClearFilter">清除</button><span class="small">博主标签为布尔标签，可直接选择“存在 / 不存在”，不填写数字阈值。</span><span id="ovFilterStatus" class="small"></span></div></div><div class="toolbar section"><span class="small">排序</span><select id="ovSort" class="select"><option value="ugphone_video_count" selected>UgPhone视频数</option><option value="channel_title">博主名称</option><option value="country">国家</option><option value="subscriber_count">订阅数</option><option value="channel_view_count">频道累计播放量</option><option value="stored_videos">已存视频数</option><option value="latest_upload">最近发布</option><option value="ldcloud_video_count">LDCloud视频数</option><option value="redfinger_video_count">RedFinger视频数</option><option value="vsphone_video_count">VSPhone视频数</option><option value="gmv_total">GMV</option><option value="new_users_total">拉新</option></select><select id="ovSortDir" class="select"><option value="desc" selected>降序</option><option value="asc">升序</option></select>{_page_size_controls("ov")}<span id="ovSummary" class="table-summary"></span></div><div class="table-wrap"><table id="overviewTable"><thead><tr id="overviewHead"><th data-field="selection">选择</th><th data-field="channel_title">博主</th><th data-field="country geography">国家</th><th data-field="subscriber_count">订阅数</th><th data-field="channel_view_count">频道累计播放量</th><th data-field="stored_videos">已存视频数</th><th data-field="identity creator_label">身份标签</th><th data-field="ugphone_video_count">UgPhone视频数</th><th data-field="gmv_total new_users_total business_metrics">商业表现</th><th data-field="monitoring_enabled priority last_sync_status">状态</th></tr></thead><tbody id="rows">{''.join(rows)}</tbody></table></div>{_pager("ov")}</div>
         <script src="assets/creator_facts.js"></script><script src="assets/metric_base.js"></script><script src="assets/metrics_config.js"></script><script src="assets/geography.js"></script><script src="assets/table_tools.js"></script><script src="assets/field_registry.js"></script><script src="assets/overview_filters.js"></script>'''
         (out/'index.html').write_text(_page('总览','overview',body),encoding='utf-8')
 
-        # Creator detail pages: all locally stored videos, one video query + one batched snapshot query per creator.
-        # Pagination/filter/sort are performed in the generated detail page; no video rows are silently truncated.
+        log(2,f"Overview written; preparing Creator detail source rows for {len(creators):,} creators")
         snap_limit=int(limits.get('snapshot_points_per_video',60))
-        for c in creators:
-            videos=[dict(r) for r in conn.execute("""SELECT v.*,s.suggested_role,s.brands_json sbrands,s.confidence,s.evidence_json,l.human_role,l.brands_json hbrands,l.labeled_by,l.labeled_at
-              FROM videos v LEFT JOIN label_suggestions s ON s.video_id=v.video_id LEFT JOIN video_labels l ON l.video_id=v.video_id
-              WHERE v.channel_id=?
-              ORDER BY CASE WHEN COALESCE(l.human_role,s.suggested_role,'pending')='ugphone' OR instr(lower(COALESCE(l.brands_json,s.brands_json,'')),'ugphone')>0 THEN 0 ELSE 1 END,
-                       COALESCE(v.current_views,0) DESC, v.published_at DESC""",(c['channel_id'],)).fetchall()]
-            snap_map:dict[str,list[int|None]]={}
-            if videos:
-                snap_rows=conn.execute("""WITH selected AS (SELECT video_id FROM videos WHERE channel_id=?),
-                  ranked AS (SELECT vs.video_id,vs.views,vs.captured_at,ROW_NUMBER() OVER(PARTITION BY vs.video_id ORDER BY vs.captured_at DESC) rn FROM video_snapshots vs JOIN selected x ON x.video_id=vs.video_id)
-                  SELECT video_id,views FROM ranked WHERE rn<=? ORDER BY video_id,rn DESC""",(c['channel_id'],snap_limit)).fetchall()
-                for sr in snap_rows:snap_map.setdefault(sr['video_id'],[]).append(sr['views'])
-            tags=[r[0] for r in conn.execute('SELECT tag FROM creator_tags WHERE channel_id=? ORDER BY tag',(c['channel_id'],)).fetchall()]
-            vrows=[]
-            for v in videos:
-                human=v.get('human_role');system=v.get('suggested_role') or 'pending';role=human or system
-                brands=json_load(v.get('hbrands') if human else v.get('sbrands'),[]);confidence=CONF_NAMES.get(v.get('confidence'),v.get('confidence') or '—')
-                label=f'<span class="pill {esc(role)}">{esc(_role_name(role))}</span>'
-                if human:label+=f'<div class="small">人工修正 · 原系统识别：{esc(_role_name(system))}</div>'
-                else:label+=f'<div class="small">系统识别 · 置信度：{esc(confidence)}</div>'
-                search=(v.get('title') or '')+' '+v['video_id']+' '+role+' '+' '.join(brands)
-                brand_text=' '.join(str(x).lower() for x in brands)
-                is_ugphone='1' if role=='ugphone' or 'ugphone' in brand_text else '0'
-                vrows.append(f'''<tr data-search="{esc(search)}" data-role="{esc(role)}" data-brands="{esc(brand_text)}" data-ugphone="{is_ugphone}" data-views="{int(v.get('current_views') or 0)}" data-likes="{int(v.get('current_likes') or 0)}" data-comments="{int(v.get('current_comments') or 0)}" data-published="{esc(v.get('published_at') or '')}" data-title="{esc(v.get('title') or '')}"><td><a target="_blank" rel="noopener" href="https://www.youtube.com/watch?v={esc(v['video_id'])}"><b>{esc(v.get('title') or v['video_id'])}</b></a><div class="small mono">{esc(v['video_id'])}</div></td><td>{esc((v.get('published_at') or '')[:10] or '—')}</td><td>{fmt_int(v.get('current_views'))}<div>{_sparkline(list(reversed(snap_map.get(v['video_id'],[]))))}</div></td><td>{fmt_int(v.get('current_likes'))}</td><td>{fmt_int(v.get('current_comments'))}</td><td>{label}<div class="small">{esc(', '.join(brands) or '—')}</div></td><td><div class="small">{esc(v.get('last_metric_at') or '—')}</div></td></tr>''')
-            facts=f'''<div class="facts"><div class="card fact"><span class="small">订阅数</span><b>{fmt_int(c.get('subscriber_count'))}</b></div><div class="card fact"><span class="small">频道累计播放量</span><b>{fmt_int(c.get('channel_view_count'))}</b></div><div class="card fact"><span class="small">YouTube视频总数</span><b>{fmt_int(c.get('channel_video_count'))}</b></div><div class="card fact"><span class="small">国家（API）</span><b>{esc(c.get('country_api') or '—')}</b></div><div class="card fact"><span class="small">GMV（最新累计快照）</span><b>{(f"${float(c.get('gmv_total')):,.2f}" if c.get('gmv_total') is not None else '未采集')}</b><span class="small">{('截至 '+esc(str(c.get('gmv_snapshot_at') or '')[:10]) if c.get('gmv_snapshot_at') else '')}</span></div><div class="card fact"><span class="small">拉新（最新累计快照）</span><b>{(f"{float(c.get('new_users_total')):,.0f}" if c.get('new_users_total') is not None else '未采集')}</b><span class="small">{('截至 '+esc(str(c.get('new_users_snapshot_at') or '')[:10]) if c.get('new_users_snapshot_at') else '')} · 历史记录 {int(c.get('business_metric_count') or 0)} 条</span></div></div><div class="section note"><b>数据新鲜度：</b>频道 {esc(c.get('channel_data_at') or '—')} · 视频指标 {esc(c.get('video_metrics_at') or '—')} · 分类 {esc(c.get('classification_data_at') or '—')} · 联系方式 {esc(c.get('contact_scraped_at') or '—')} · 商业数据 {esc(c.get('business_metric_updated_at') or '—')} · 发现 {esc(c.get('discovery_data_at') or '—')} · 完整同步 {esc(c.get('last_synced_at') or '—')}</div>'''
-            cbody=f'''<div class="title"><div><a class="small" href="../index.html">← 返回博主库</a><div class="hero"><img class="avatar" src="{esc(c.get('thumbnail_url') or '')}"><div><h1><a class="link-ext" target="_blank" rel="noopener" href="{esc(c.get('channel_url') or ('https://www.youtube.com/channel/'+c['channel_id']))}">{esc(c.get('channel_title') or c['channel_id'])}</a></h1><div class="sub mono">{esc(c['channel_id'])} · {esc(c.get('handle') or '')}</div><div>{''.join('<span class="pill">'+esc(t)+'</span>' for t in tags)}</div></div></div></div><div class="small">最近同步<br>{esc(c.get('last_synced_at') or '—')}</div></div>{facts}<div class="section note ai-callout"><b>AI 可选增强：</b>Creator Brief 只读取本地事实并生成独立 AI 判断，不修改系统评分、标签或人工结果。<br><a class="link-ext" href="../ai.html?brief={esc(c['channel_id'])}#ai-brief">在 AI 助手中分析此博主</a></div><div class="section"><h2>视频 · 当前客观数据 + 有效分类（人工优先）</h2>
-            <div class="toolbar"><input id="detailSearch" class="input" placeholder="搜索视频 / Video ID / 分类 / 品牌"><button class="btn" id="detailExport">导出 XLSX</button></div><div class="builder-panel"><div id="detailFilterConditions"></div><div class="inline"><button class="btn" id="detailAddFilter">添加筛选条件</button><button class="btn primary" id="detailApplyFilter">应用筛选</button><button class="btn" id="detailClearFilter">清除筛选</button></div></div>
-            <div class="toolbar section"><span class="small">排序</span><select id="detailSort" class="select"><option value="priority_views" selected>UgPhone优先 + 播放量</option><option value="views">播放量</option><option value="published">发布时间</option><option value="likes">点赞数</option><option value="comments">评论数</option><option value="title">视频名称</option><option value="role">视频分类</option></select><select id="detailSortDir" class="select"><option value="desc" selected>降序</option><option value="asc">升序</option></select>{_page_size_controls("detail")}<span id="detailSummary" class="table-summary"></span></div>
-            <div class="table-wrap"><table id="detailTable"><thead><tr><th data-field="title">视频</th><th data-field="published">发布时间</th><th data-field="views priority_views">播放量 / 历史</th><th data-field="likes">点赞数</th><th data-field="comments">评论数</th><th data-field="role brand priority_views">有效分类（人工优先）</th><th data-field="metric_time">指标抓取时间</th></tr></thead><tbody id="detailRows">{''.join(vrows)}</tbody></table></div>{_pager("detail")}</div><script src="../assets/table_tools.js"></script><script src="../assets/creator_detail.js"></script>'''
-            (creators_dir/(safe_filename(c['channel_id'])+'.html')).write_text(_page(c.get('channel_title') or c['channel_id'],'overview',cbody,base='../'),encoding='utf-8')
+        videos_by_creator,tags_by_creator,detail_video_rows=_load_detail_sources(conn)
+        log(3,f"Loaded {detail_video_rows:,} video rows and Creator tags in bulk")
 
-        static_dir=Path(__file__).resolve().parent/'static'; static_js=static_dir/'metrics_workspace.js';write_metric_assets(conn,out,creators,last_sync,static_js)
+        assets_dir=out/'assets'
+        assets_dir.mkdir(parents=True,exist_ok=True)
+        state_path=assets_dir/'dashboard_build_state.json'
+        try:
+            previous_state=json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else {}
+        except Exception:
+            previous_state={}
+        previous_fingerprints=previous_state.get('creator_detail_fingerprints') if previous_state.get('version')==__version__ else {}
+        if not isinstance(previous_fingerprints,dict): previous_fingerprints={}
+        next_fingerprints={}
+        built_pages=0
+        cached_pages=0
+        total_creators=len(creators)
+        chunk_size=32
+
+        for batch_start in range(0,total_creators,chunk_size):
+            batch=creators[batch_start:batch_start+chunk_size]
+            build_batch=[]
+            for c in batch:
+                cid=str(c['channel_id'])
+                tags=tags_by_creator.get(cid,[])
+                fp=_creator_detail_fingerprint(c,tags)
+                next_fingerprints[cid]=fp
+                page=creators_dir/(safe_filename(cid)+'.html')
+                if page.exists() and previous_fingerprints.get(cid)==fp:
+                    cached_pages+=1
+                else:
+                    build_batch.append(c)
+
+            # Snapshot histories are loaded once per chunk, not once per Creator.
+            snap_map=_load_snapshot_chunk(conn,[str(c['channel_id']) for c in build_batch],snap_limit) if build_batch else {}
+
+            for c in build_batch:
+                cid=str(c['channel_id'])
+                videos=videos_by_creator.get(cid,[])
+                tags=tags_by_creator.get(cid,[])
+                vrows=[]
+                for v in videos:
+                    human=v.get('human_role');system=v.get('suggested_role') or 'pending';role=human or system
+                    brands=json_load(v.get('hbrands') if human else v.get('sbrands'),[]);confidence=CONF_NAMES.get(v.get('confidence'),v.get('confidence') or '—')
+                    label=f'<span class="pill {esc(role)}">{esc(_role_name(role))}</span>'
+                    if human:label+=f'<div class="small">人工修正 · 原系统识别：{esc(_role_name(system))}</div>'
+                    else:label+=f'<div class="small">系统识别 · 置信度：{esc(confidence)}</div>'
+                    search=(v.get('title') or '')+' '+v['video_id']+' '+role+' '+' '.join(brands)
+                    brand_text=' '.join(str(x).lower() for x in brands)
+                    is_ugphone='1' if role=='ugphone' or 'ugphone' in brand_text else '0'
+                    vrows.append(f'''<tr data-search="{esc(search)}" data-role="{esc(role)}" data-brands="{esc(brand_text)}" data-ugphone="{is_ugphone}" data-views="{int(v.get('current_views') or 0)}" data-likes="{int(v.get('current_likes') or 0)}" data-comments="{int(v.get('current_comments') or 0)}" data-published="{esc(v.get('published_at') or '')}" data-title="{esc(v.get('title') or '')}"><td><a target="_blank" rel="noopener" href="https://www.youtube.com/watch?v={esc(v['video_id'])}"><b>{esc(v.get('title') or v['video_id'])}</b></a><div class="small mono">{esc(v['video_id'])}</div></td><td>{esc((v.get('published_at') or '')[:10] or '—')}</td><td>{fmt_int(v.get('current_views'))}<div>{_sparkline(list(reversed(snap_map.get(v['video_id'],[]))))}</div></td><td>{fmt_int(v.get('current_likes'))}</td><td>{fmt_int(v.get('current_comments'))}</td><td>{label}<div class="small">{esc(', '.join(brands) or '—')}</div></td><td><div class="small">{esc(v.get('last_metric_at') or '—')}</div></td></tr>''')
+                facts=f'''<div class="facts"><div class="card fact"><span class="small">订阅数</span><b>{fmt_int(c.get('subscriber_count'))}</b></div><div class="card fact"><span class="small">频道累计播放量</span><b>{fmt_int(c.get('channel_view_count'))}</b></div><div class="card fact"><span class="small">YouTube视频总数</span><b>{fmt_int(c.get('channel_video_count'))}</b></div><div class="card fact"><span class="small">国家（API）</span><b>{esc(c.get('country_api') or '—')}</b></div><div class="card fact"><span class="small">GMV（最新累计快照）</span><b>{(f"${float(c.get('gmv_total')):,.2f}" if c.get('gmv_total') is not None else '未采集')}</b><span class="small">{('截至 '+esc(str(c.get('gmv_snapshot_at') or '')[:10]) if c.get('gmv_snapshot_at') else '')}</span></div><div class="card fact"><span class="small">拉新（最新累计快照）</span><b>{(f"{float(c.get('new_users_total')):,.0f}" if c.get('new_users_total') is not None else '未采集')}</b><span class="small">{('截至 '+esc(str(c.get('new_users_snapshot_at') or '')[:10]) if c.get('new_users_snapshot_at') else '')} · 历史记录 {int(c.get('business_metric_count') or 0)} 条</span></div></div><div class="section note"><b>数据新鲜度：</b>频道 {esc(c.get('channel_data_at') or '—')} · 视频指标 {esc(c.get('video_metrics_at') or '—')} · 分类 {esc(c.get('classification_data_at') or '—')} · 联系方式 {esc(c.get('contact_scraped_at') or '—')} · 商业数据 {esc(c.get('business_metric_updated_at') or '—')} · 发现 {esc(c.get('discovery_data_at') or '—')} · 完整同步 {esc(c.get('last_synced_at') or '—')}</div>'''
+                cbody=f'''<div class="title"><div><a class="small" href="../index.html">← 返回博主库</a><div class="hero"><img class="avatar" src="{esc(c.get('thumbnail_url') or '')}"><div><h1><a class="link-ext" target="_blank" rel="noopener" href="{esc(c.get('channel_url') or ('https://www.youtube.com/channel/'+c['channel_id']))}">{esc(c.get('channel_title') or c['channel_id'])}</a></h1><div class="sub mono">{esc(c['channel_id'])} · {esc(c.get('handle') or '')}</div><div>{''.join('<span class="pill">'+esc(t)+'</span>' for t in tags)}</div></div></div></div><div class="small">最近同步<br>{esc(c.get('last_synced_at') or '—')}</div></div>{facts}<div class="section note ai-callout"><b>AI 可选增强：</b>Creator Brief 只读取本地事实并生成独立 AI 判断，不修改系统评分、标签或人工结果。<br><a class="link-ext" href="../ai.html?brief={esc(c['channel_id'])}#ai-brief">在 AI 助手中分析此博主</a></div><div class="section"><h2>视频 · 当前客观数据 + 有效分类（人工优先）</h2>
+                <div class="toolbar"><input id="detailSearch" class="input" placeholder="搜索视频 / Video ID / 分类 / 品牌"><button class="btn" id="detailExport">导出 XLSX</button></div><div class="builder-panel"><div id="detailFilterConditions"></div><div class="inline"><button class="btn" id="detailAddFilter">添加筛选条件</button><button class="btn primary" id="detailApplyFilter">应用筛选</button><button class="btn" id="detailClearFilter">清除筛选</button></div></div>
+                <div class="toolbar section"><span class="small">排序</span><select id="detailSort" class="select"><option value="priority_views" selected>UgPhone优先 + 播放量</option><option value="views">播放量</option><option value="published">发布时间</option><option value="likes">点赞数</option><option value="comments">评论数</option><option value="title">视频名称</option><option value="role">视频分类</option></select><select id="detailSortDir" class="select"><option value="desc" selected>降序</option><option value="asc">升序</option></select>{_page_size_controls("detail")}<span id="detailSummary" class="table-summary"></span></div>
+                <div class="table-wrap"><table id="detailTable"><thead><tr><th data-field="title">视频</th><th data-field="published">发布时间</th><th data-field="views priority_views">播放量 / 历史</th><th data-field="likes">点赞数</th><th data-field="comments">评论数</th><th data-field="role brand priority_views">有效分类（人工优先）</th><th data-field="metric_time">指标抓取时间</th></tr></thead><tbody id="detailRows">{''.join(vrows)}</tbody></table></div>{_pager("detail")}</div><script src="../assets/table_tools.js"></script><script src="../assets/creator_detail.js"></script>'''
+                (creators_dir/(safe_filename(c['channel_id'])+'.html')).write_text(_page(c.get('channel_title') or c['channel_id'],'overview',cbody,base='../'),encoding='utf-8')
+
+                built_pages+=1
+
+            done=min(batch_start+len(batch),total_creators)
+            if done==total_creators or done%64==0:
+                log(4,f"Creator pages {done:,}/{total_creators:,} · rebuilt {built_pages:,} · cache hit {cached_pages:,}")
+
+        # Remove pages for Creators that no longer exist.
+        valid_pages={safe_filename(str(c['channel_id']))+'.html' for c in creators}
+        removed_pages=0
+        for p in creators_dir.glob('*.html'):
+            if p.name not in valid_pages:
+                p.unlink()
+                removed_pages+=1
+
+        state_path.write_text(json.dumps({
+            'version':__version__,
+            'creator_detail_fingerprints':next_fingerprints,
+            'updated_at':time.time(),
+        },ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
+        log(4,f"Creator detail stage complete · rebuilt {built_pages:,} · cached {cached_pages:,} · removed {removed_pages:,}")
+
+        static_dir=Path(__file__).resolve().parent/'static'
+        static_js=static_dir/'metrics_workspace.js'
+        def metric_progress(stage,current,total,message):
+            if total:
+                suffix=f"{current:,}/{total:,}"
+            else:
+                suffix=""
+            log(5,f"{stage}: {message} {suffix}".strip())
+        metric_result=write_metric_assets(conn,out,creators,last_sync,static_js,progress=metric_progress)
+        log(5,f"Metric assets complete · cubes {metric_result.get('cubes',0):,} · cache hit {bool(metric_result.get('metric_cache_hit'))}")
         assets=out/'assets'
+        log(6,"Writing shared static assets and primary Workspace/Metric pages")
         geo_path=Path(__file__).resolve().parents[1]/'config'/'geography.json'
         geo_obj=json.loads(geo_path.read_text(encoding='utf-8'))
         (assets/'geography.js').write_text('window.CDH_GEOGRAPHY='+json.dumps(geo_obj,ensure_ascii=False,separators=(',',':'))+';\n',encoding='utf-8')
@@ -300,12 +437,16 @@ def build_dashboard(db_path: str | Path, output_dir: str | Path, settings: dict[
         (assets/'export_tools.js').write_text((static_dir/'export_tools.js').read_text(encoding='utf-8'),encoding='utf-8')
         (assets/'section_nav.js').write_text((static_dir/'section_nav.js').read_text(encoding='utf-8'),encoding='utf-8')
         (assets/'maintenance.js').write_text((static_dir/'maintenance.js').read_text(encoding='utf-8'),encoding='utf-8')
+        (assets/'sync_runs_viewport.js').write_text((static_dir/'sync_runs_viewport.js').read_text(encoding='utf-8'),encoding='utf-8')
+        (assets/'workspace.js').write_text((static_dir/'workspace.js').read_text(encoding='utf-8'),encoding='utf-8')
         (assets/'ai_copilot.js').write_text((static_dir/'ai_copilot.js').read_text(encoding='utf-8'),encoding='utf-8')
+        (out/'workspace.html').write_text(_page('工作区','workspace',WORKSPACE_BODY),encoding='utf-8')
         (out/'metrics.html').write_text(_page('二次指标','metrics',METRICS_BODY),encoding='utf-8')
 
         # Video classification page. The base dataset is ALL locally stored videos.
         # Static HTML contains only a bounded preview; interactive mode queries the complete SQLite dataset.
         lim=int(limits.get('classification_preview_limit',limits.get('pending_label_limit',300)))
+        log(7,"Building classification, discovery, sync and AI auxiliary pages")
         review=[dict(r) for r in conn.execute("""SELECT v.video_id,v.title,v.channel_id,v.published_at,v.current_views,v.current_likes,v.current_comments,v.duration_seconds,
           s.suggested_role,s.brands_json AS system_brands_json,s.confidence,s.evidence_json,s.rule_version,
           l.human_role,l.brands_json AS human_brands_json,l.labeled_by,l.labeled_at,c.channel_title
@@ -381,9 +522,9 @@ def build_dashboard(db_path: str | Path, output_dir: str | Path, settings: dict[
         <div class="section anchor-section" id="sync-database"><h2>数据库健康 / 备份恢复</h2><div id="dbHealth" class="note">交互模式下可运行 SQLite quick_check、查看数据库/WAL大小并创建一致性备份。</div><div class="toolbar section"><button class="btn" id="dbHealthRefresh">运行 quick_check</button><button class="btn primary" id="dbBackup">立即备份数据库</button><select id="backupSelect" class="select"><option value="">选择已有备份</option></select><button class="btn danger" id="dbRestore">从所选备份恢复</button><span id="dbActionStatus" class="small"></span></div><div class="small">恢复前系统会先自动备份当前数据库并校验目标备份。建议停止其他写入任务后执行。</div></div>
         <div class="section anchor-section" id="sync-business"><h2>商业表现数据</h2><div class="note"><b>GMV 默认且固定为 USD 累计快照。</b> 每次导入记录采集时间；同一 Creator 的历史 GMV 快照不会相加，博主库默认显示最新采集时间点的累计 GMV。当前版本继续固定使用该 USD 快照口径，不提供 GMV 汇率换算、币种补全或待换算状态。</div><div class="business-import section inline"><input id="businessImportFile" type="file" accept=".xlsx,.xlsm,.csv"><label class="small">数据采集时间 <input id="businessCaptureAt" class="input" type="datetime-local"></label><button class="btn primary" id="businessImportBtn">导入 GMV / 拉新数据</button><span id="businessImportStatus" class="small"></span></div></div>
         <div class="section anchor-section" id="sync-maintenance"><h2>数据维护</h2><div class="note"><b>Snapshot 生命周期：</b>最近30天保留全部；31–180天每天保留1条；181–730天每周1条；2年以上每月1条。自动任务最多每7天执行一次。</div><div class="toolbar section"><button class="btn" id="snapshotDryRun">预估可压缩数量</button><button class="btn danger" id="snapshotCompact">执行 Snapshot 压缩</button><span id="snapshotStatus" class="small"></span></div></div>
-        <div class="section anchor-section" id="sync-runs"><div class="inline spread"><h2>同步记录</h2><button class="btn" id="syncExport">导出 XLSX</button></div><div class="toolbar"><input id="syncSearch" class="input" placeholder="搜索同步模式 / 目标 / 状态 / 信息"><select id="syncSort" class="select"><option value="started">开始时间</option><option value="id">ID</option><option value="videos">视频数</option><option value="creators">博主数</option></select><select id="syncSortDir" class="select"><option value="desc">降序</option><option value="asc">升序</option></select>{_page_size_controls('sync')}<span id="syncSummary" class="table-summary"></span></div><div class="table-wrap"><table id="syncRunsTable"><thead><tr><th data-field="id">ID</th><th data-field="mode">同步模式</th><th data-field="target">目标</th><th data-field="status">状态</th><th data-field="creators">博主数</th><th data-field="videos">视频数</th><th data-field="quota">配额</th><th data-field="started">时间</th><th data-field="message">信息</th></tr></thead><tbody id="syncRows">{''.join(rrows)}</tbody></table></div>{_pager('sync')}</div>
+        <div class="section anchor-section" id="sync-runs"><div class="inline spread"><h2>同步记录</h2><button class="btn" id="syncExport">导出 XLSX</button></div><div class="toolbar"><input id="syncSearch" class="input" placeholder="搜索同步模式 / 目标 / 状态 / 信息"><select id="syncSort" class="select"><option value="started">开始时间</option><option value="id">ID</option><option value="videos">视频数</option><option value="creators">博主数</option></select><select id="syncSortDir" class="select"><option value="desc">降序</option><option value="asc">升序</option></select><input id="syncPageSize" type="hidden" value="30"><span class="sync-fixed-page-size">每页 30 条</span><span id="syncSummary" class="table-summary"></span></div><div class="table-wrap sync-runs-scroll-shell" id="syncRunsScroll"><table id="syncRunsTable"><thead><tr><th data-field="id">ID</th><th data-field="mode">同步模式</th><th data-field="target">目标</th><th data-field="status">状态</th><th data-field="creators">博主数</th><th data-field="videos">视频数</th><th data-field="quota">配额</th><th data-field="started">时间</th><th data-field="message">信息</th></tr></thead><tbody id="syncRows">{''.join(rrows)}</tbody></table></div>{_pager('sync')}</div>
         <div class="section anchor-section" id="sync-quota"><div class="inline spread"><h2>YouTube API 配额估算</h2><button class="btn" id="quotaExport">导出 XLSX</button></div><div class="table-wrap"><table id="quotaTable"><thead><tr><th>日期</th><th>估算单位</th><th>更新时间</th></tr></thead><tbody>{''.join(qrows)}</tbody></table></div></div>
-        <script src="assets/table_tools.js"></script><script src="assets/maintenance.js"></script><script src="assets/business_metrics.js"></script><script>CDHTableTools.init({{tbodyId:'syncRows',searchId:'syncSearch',pageSizeId:'syncPageSize',pageSizeConfirmId:'syncPageSizeConfirm',firstId:'syncFirst',prevId:'syncPrev',nextId:'syncNext',lastId:'syncLast',buttonsId:'syncPageButtons',pageInputId:'syncPageInput',jumpId:'syncJump',pageInfoId:'syncPageInfo',summaryId:'syncSummary',sortId:'syncSort',sortDirId:'syncSortDir',sortMap:{{started:{{attr:'started',type:'text'}},id:{{attr:'id',type:'number'}},videos:{{attr:'videos',type:'number'}},creators:{{attr:'creators',type:'number'}}}},defaultSort:'started',defaultDir:'desc',exportButtonId:'syncExport',exportName:'sync_runs.xlsx',exportSheet:'同步记录'}});document.getElementById('quotaExport').onclick=()=>{{if(!window.CDHExport)return alert('导出组件未加载');const rows=[...document.querySelectorAll('#quotaTable tbody tr')].map(r=>({{date:(r.children[0]?.innerText||'').trim(),units:(r.children[1]?.innerText||'').replace(/,/g,'').trim(),updated:(r.children[2]?.innerText||'').trim()}}));CDHExport.rows('api_quota.xlsx','API配额',[{{key:'date',label:'日期'}},{{key:'units',label:'估算单位'}},{{key:'updated',label:'更新时间'}}],rows).catch(e=>alert(e.message))}};</script>''';
+        <script src="assets/table_tools.js"></script><script src="assets/maintenance.js"></script><script src="assets/business_metrics.js"></script><script>CDHTableTools.init({{tbodyId:'syncRows',searchId:'syncSearch',pageSizeId:'syncPageSize',pageSizeConfirmId:'syncPageSizeConfirm',firstId:'syncFirst',prevId:'syncPrev',nextId:'syncNext',lastId:'syncLast',buttonsId:'syncPageButtons',pageInputId:'syncPageInput',jumpId:'syncJump',pageInfoId:'syncPageInfo',summaryId:'syncSummary',sortId:'syncSort',sortDirId:'syncSortDir',sortMap:{{started:{{attr:'started',type:'text'}},id:{{attr:'id',type:'number'}},videos:{{attr:'videos',type:'number'}},creators:{{attr:'creators',type:'number'}}}},defaultSort:'started',defaultDir:'desc',exportButtonId:'syncExport',exportName:'sync_runs.xlsx',exportSheet:'同步记录'}});document.getElementById('quotaExport').onclick=()=>{{if(!window.CDHExport)return alert('导出组件未加载');const rows=[...document.querySelectorAll('#quotaTable tbody tr')].map(r=>({{date:(r.children[0]?.innerText||'').trim(),units:(r.children[1]?.innerText||'').replace(/,/g,'').trim(),updated:(r.children[2]?.innerText||'').trim()}}));CDHExport.rows('api_quota.xlsx','API配额',[{{key:'date',label:'日期'}},{{key:'units',label:'估算单位'}},{{key:'updated',label:'更新时间'}}],rows).catch(e=>alert(e.message))}};</script><script src="assets/sync_runs_viewport.js"></script>''';
         (out/'sync.html').write_text(_page('数据更新','sync',sbody),encoding='utf-8')
 
         aibody='''<div class="title"><div><h1>AI 助手</h1><div class="sub">可选的 AI 增强层。API 协议、Base URL、API Key 和模型 ID 均可由用户配置；未配置 AI 时核心数据中心完整可用。</div></div></div>
@@ -391,7 +532,7 @@ def build_dashboard(db_path: str | Path, output_dir: str | Path, settings: dict[
           <div class="builder-panel section"><div class="toolbar"><label class="small"><input id="aiEnable" type="checkbox"> 启用 AI</label><label class="small">API 协议</label><select id="aiProtocol" class="select"><option value="openai_responses">Responses API</option><option value="openai_chat">OpenAI-compatible Chat Completions</option><option value="anthropic_messages">Anthropic Messages</option><option value="gemini_generate_content">Gemini generateContent</option><option value="mock">Mock（离线测试）</option></select></div>
           <div class="toolbar"><input id="aiBaseUrl" class="input" style="min-width:420px" placeholder="API Base URL，例如 https://api.example.com/v1"><input id="aiApiKey" class="input" type="password" autocomplete="off" style="min-width:300px" placeholder="API Key（留空则保留已配置的 Key）"><button id="aiLoadModels" class="btn">读取模型列表</button></div>
           <div class="toolbar"><input id="aiModel" class="input" list="aiModelList" style="min-width:360px" placeholder="模型 ID：可从列表选择，也可手动输入任意 API 支持的模型"><datalist id="aiModelList"></datalist><input id="aiDaily" class="input" type="number" min="1" value="100" style="width:120px;min-width:120px" title="每日请求软上限"><button id="aiSaveConfig" class="btn primary">保存 AI 配置</button><button id="aiTestConfig" class="btn">测试连接</button><button id="aiClearKey" class="btn danger">清除 API Key</button><span id="aiKeyState" class="small"></span></div>
-          <div id="aiConfigHint" class="small">API Key 只提交给 .1 本机 Python，并保存到用户级本地凭据槽；不写入 SQLite、Dashboard HTML 或浏览器 LocalStorage。模型不使用固定清单：能自动读取时可直接选择，读取不到时可手动输入模型 ID。</div></div>
+          <div id="aiConfigHint" class="small">API Key 只提交给 127.0.0.1 本机 Python，并保存到用户级本地凭据槽；不写入 SQLite、Dashboard HTML 或浏览器 LocalStorage。模型不使用固定清单：能自动读取时可直接选择，读取不到时可手动输入模型 ID。</div></div>
           <details><summary>常见接入方式</summary><div class="small section">OpenAI 可使用 Responses API；任何实现 OpenAI-compatible Chat Completions 的服务可选择对应协议并填写其 Base URL；Anthropic / Gemini 使用各自协议。Base URL 和模型 ID 均允许自行填写，因此不依赖本项目更新模型列表。</div></details></div>
         <div class="section anchor-section" id="ai-ask"><h2>Ask Hub · 自然语言查询本地 Creator 数据</h2><div class="note">AI 只负责把问题转换为允许的只读查询计划；实际结果由本地 SQLite 返回。<b>每次查询都会自动留档为独立 Result Set</b>，可再次打开、筛选、排序和导出。</div><div class="toolbar section"><input id="aiQuestion" class="input" style="min-width:620px" placeholder="例如：找出东南亚1万到5万订阅、未合作UgPhone但有竞品合作的博主"><button id="aiAsk" class="btn primary">查询并留档</button></div><div id="aiAskResult"></div></div>
         <div class="section anchor-section" id="ai-brief"><h2>Creator Brief</h2><div class="note">先搜索本地 Creator，点击候选锁定后再生成 Brief；无需记忆 Channel ID。</div><div class="toolbar section"><div class="creator-picker"><input id="aiBriefSearch" class="input" autocomplete="off" placeholder="输入博主名称 / @handle / Channel ID"><div id="aiBriefMenu" class="picker-menu" style="display:none"></div></div><div id="aiBriefLocked" class="picker-locks"></div><button id="aiBrief" class="btn primary">生成 Brief</button></div><div id="aiBriefResult"></div></div>
@@ -403,5 +544,6 @@ def build_dashboard(db_path: str | Path, output_dir: str | Path, settings: dict[
         <script src="assets/table_tools.js"></script><script src="assets/ai_copilot.js"></script>'''
         (out/'ai.html').write_text(_page('AI 助手','ai',aibody),encoding='utf-8')
 
-    (out/'README.txt').write_text('静态只读：双击 index.html 或 Skill 根目录 open-static-dashboard.cmd。\n交互模式：双击 Skill 根目录 start-dashboard.cmd，浏览器通过 .1:8765 与本机 Python/SQLite 通信。\n首次安装：运行 setup.cmd。\n完整 XLSX 导出、搜索、写入、完整筛选需要交互模式。\nAI 功能默认关闭；不配置 AI API 时现有核心功能完整可用。\n',encoding='utf-8')
-    return {'output_dir':str(out.resolve()),'index':str((out/'index.html').resolve()),'creator_pages':len(creators),'stats':stats,'metric_data_mode':'python_preaggregated'}
+    (out/'README.txt').write_text('静态只读：双击 index.html 或 Skill 根目录 open-static-dashboard.cmd。\n交互模式：双击 Skill 根目录 start-dashboard.cmd，浏览器通过 127.0.0.1:8765 与本机 Python/SQLite 通信。\n首次安装：运行 setup.cmd。\n完整 XLSX 导出、搜索、写入、完整筛选需要交互模式。\nAI 功能默认关闭；不配置 AI API 时现有核心功能完整可用。\n',encoding='utf-8')
+    log(8,f"Dashboard build complete · creators {len(creators):,}")
+    return {'output_dir':str(out.resolve()),'index':str((out/'index.html').resolve()),'creator_pages':len(creators),'stats':stats,'metric_data_mode':'python_preaggregated','metric_build_strategy':'bulk_cached_v4_0_1'}

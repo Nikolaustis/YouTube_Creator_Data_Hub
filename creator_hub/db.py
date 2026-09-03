@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 LEGACY_DISCOVERY_INFERENCE_VERSION = 2
 DISCOVERY_SUMMARY_VERSION = 1
 

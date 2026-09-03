@@ -4,7 +4,7 @@ from typing import Any
 
 LEVEL1 = [
     {"id":"objective","name":"客观数据","order":10},
-    {"id":"labels","name":"博主标签","order":20},
+    {"id":"labels","name":"标签 / 关系","order":20},
     {"id":"constructed","name":"构建指标","order":30},
     {"id":"ratio","name":"比值指标","order":40},
 ]
@@ -22,8 +22,9 @@ OBJECTIVE_LEVEL2 = [
 ]
 
 LABEL_LEVEL2 = [
-    {"id":"partnership","name":"合作身份","order":10},
-    {"id":"competitor_partnership","name":"竞品合作","order":20},
+    {"id":"relationship","name":"Creator 关系","order":10},
+    {"id":"partnership","name":"合作身份（兼容）","order":20},
+    {"id":"competitor_partnership","name":"竞品合作（兼容）","order":30},
     {"id":"workflow","name":"工作流","order":30},
     {"id":"monitoring","name":"监控标签","order":40},
     {"id":"manual","name":"人工标签","order":50},
@@ -31,6 +32,8 @@ LABEL_LEVEL2 = [
 
 
 def creator_objective_group(key: str) -> str:
+    if key.startswith("business__"): return "business"
+    if key.startswith("workspace_content") or key.startswith("taxonomy_count__"): return "content_brand"
     if key in {"channel_title","channel_id","handle"}: return "basic_info"
     if key in {"country","country_resolved","country_api","language","creator_language"}: return "geography"
     if key in {"subscriber_count","channel_view_count","channel_video_count","stored_videos"}: return "channel_scale"
@@ -42,6 +45,7 @@ def creator_objective_group(key: str) -> str:
 
 
 def creator_label_group(key: str) -> str:
+    if key.startswith("relationship__"): return "relationship"
     if key in {"partnered_ugphone","unpartnered_ugphone","suspected_inactive_partner"}: return "partnership"
     if key in {"ldcloud_creator","redfinger_creator","vsphone_creator","ugphone_and_competitor"}: return "competitor_partnership"
     if key.startswith("workflow_") or key == "workflow_status": return "workflow"

@@ -336,7 +336,7 @@ def import_business_metrics(hub: CreatorHub, source: str|Path, *, source_type: s
                     row_captured_at=_normalize_capture_time(at(extra["captured_at"]),batch_captured_at)
                     for idx,key,val in values:
                         monetary=key in {"gmv","revenue","commission","cost"}
-                        # UgPhone backend GMV is a USD cumulative snapshot.   deliberately
+                        # UgPhone backend GMV is a USD cumulative snapshot.  v3.9.3 deliberately
                         # does not infer/convert currencies for GMV, even when a legacy workbook
                         # happens to contain a currency or FX column.
                         if key == "gmv":

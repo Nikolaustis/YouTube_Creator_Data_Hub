@@ -45,11 +45,15 @@ class CreatorHub:
     ):
         self.db_path = str(db_path)
         self.settings = load_settings(settings_path)
-        self.brand_cfg = load_brands(brands_path)
         init_db(self.db_path)
+        from .workspace import WorkspaceService
+        self.workspace = WorkspaceService(self.db_path)
+        self.workspace.bootstrap()
+        self.legacy_brand_cfg = load_brands(brands_path)
+        self.brand_cfg = self.workspace.classifier_config(self.legacy_brand_cfg)
         self._api: YouTubeAPI | None = None
         self.unit_budget = unit_budget
-        # Current service split: cross-cutting architecture services live outside the legacy facade.
+        # Cross-cutting architecture services live outside the legacy facade.
         from .services import RunService, IntelligenceService, DataContractService
         self.runs = RunService(self)
         self.intelligence = IntelligenceService(self)
@@ -68,6 +72,8 @@ class CreatorHub:
     def get_setting(self, key: str, default: Any = None) -> Any:
         if key not in self._SETTING_KEYS:
             raise ValueError("unsupported setting key")
+        if key == "secondary_metrics":
+            return self.workspace.get_setting(key, default)
         with connect(self.db_path) as conn:
             row=conn.execute("SELECT value_json FROM app_settings WHERE key=?",(key,)).fetchone()
         return json_load(row["value_json"], default) if row else default
@@ -78,12 +84,13 @@ class CreatorHub:
         if key=="secondary_metrics":
             from .metric_config import validate_metric_config
             value=validate_metric_config(value)
+            return self.workspace.set_setting(key, value)
         if key in {"query_profile","dashboard_preferences","ai_config"} and not isinstance(value,dict):
             raise ValueError("setting value must be an object")
         at=now_utc()
         with connect(self.db_path) as conn:
-            conn.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",(key,json_dump(value),at))
-            conn.commit()
+            conn.execute("""INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?)
+                          ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at""",(key,json_dump(value),at));conn.commit()
         return {"key":key,"value":value,"updated_at":at}
 
     def list_settings(self) -> dict[str, Any]:
@@ -128,25 +135,37 @@ class CreatorHub:
                 totals[key]={"value":sum(float(r.get("metric_value") or 0) for r in bucket),"currency":"","captured_at":at,"records":len(bucket),"source_currencies":[]}
         return {"creator":dict(creator),"totals":totals,"rows":rows,"snapshot_semantics":"latest_point_in_time_total"}
 
+    def _workspace_page_key(self, page_key: str) -> str:
+        wid = self.workspace.active_id() or "general"
+        return f"{wid}:{str(page_key or '').strip()}"
+
     def saved_views(self, page_key: str) -> list[dict[str,Any]]:
+        internal = self._workspace_page_key(page_key)
         with connect(self.db_path) as conn:
-            rows=conn.execute("SELECT id,page_key,name,config_json,created_at,updated_at FROM saved_views WHERE page_key=? ORDER BY updated_at DESC,name",(page_key,)).fetchall()
-        return [{**dict(r),"config":json_load(r["config_json"],{})} for r in rows]
+            rows=conn.execute("SELECT id,page_key,name,config_json,created_at,updated_at FROM saved_views WHERE page_key=? ORDER BY updated_at DESC,name",(internal,)).fetchall()
+        out=[]
+        for r in rows:
+            d=dict(r); d["page_key"]=str(page_key or "")
+            d["config"]=json_load(d["config_json"],{})
+            out.append(d)
+        return out
 
     def save_view(self, page_key: str, name: str, config: dict[str,Any]) -> dict[str,Any]:
         page_key=str(page_key or "").strip(); name=" ".join(str(name or "").split()).strip()
         if not page_key or not name: raise ValueError("page_key and name are required")
         if not isinstance(config,dict): raise ValueError("view config must be an object")
-        at=now_utc()
+        internal=self._workspace_page_key(page_key); at=now_utc()
         with connect(self.db_path) as conn:
             conn.execute("""INSERT INTO saved_views(page_key,name,config_json,created_at,updated_at) VALUES(?,?,?,?,?)
-                          ON CONFLICT(page_key,name) DO UPDATE SET config_json=excluded.config_json,updated_at=excluded.updated_at""",(page_key,name,json_dump(config),at,at))
-            row=conn.execute("SELECT id,page_key,name,config_json,created_at,updated_at FROM saved_views WHERE page_key=? AND name=?",(page_key,name)).fetchone(); conn.commit()
-        return {**dict(row),"config":json_load(row["config_json"],{})}
+                          ON CONFLICT(page_key,name) DO UPDATE SET config_json=excluded.config_json,updated_at=excluded.updated_at""",(internal,name,json_dump(config),at,at))
+            row=conn.execute("SELECT id,page_key,name,config_json,created_at,updated_at FROM saved_views WHERE page_key=? AND name=?",(internal,name)).fetchone(); conn.commit()
+        d=dict(row); d["page_key"]=page_key; d["config"]=json_load(d["config_json"],{})
+        return d
 
     def delete_view(self, view_id: int) -> dict[str,Any]:
+        prefix=(self.workspace.active_id() or "general")+":%"
         with connect(self.db_path) as conn:
-            cur=conn.execute("DELETE FROM saved_views WHERE id=?",(int(view_id),)); conn.commit()
+            cur=conn.execute("DELETE FROM saved_views WHERE id=? AND page_key LIKE ?",(int(view_id),prefix)); conn.commit()
         return {"deleted":int(cur.rowcount or 0),"id":int(view_id)}
 
     # ---------- normalization / persistence ----------

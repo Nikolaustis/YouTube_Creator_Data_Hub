@@ -142,5 +142,5 @@ def suggest_label(video: dict[str, Any], brand_cfg: dict[str, Any]) -> dict[str,
         'confidence': confidence,
         'evidence': evidence,
         'generated_at': now_utc(),
-        'rule_version': brand_cfg.get('rule_version', ''),
+        'rule_version': brand_cfg.get('rule_version', '0.1.0'),
     }

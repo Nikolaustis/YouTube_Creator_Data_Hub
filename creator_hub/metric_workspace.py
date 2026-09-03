@@ -10,6 +10,7 @@ from .db import json_load
 from .metric_config import load_metric_config
 from .util import now_utc, parse_iso
 from .field_registry import registry_payload
+from .workspace import active_workspace_context
 
 WINDOWS=(0,7,30,60,90,180,365)
 MEASURES=("current_views","current_likes","current_comments","duration_seconds")
@@ -53,6 +54,13 @@ VIDEO_FACT_FIELDS={
     "current_likes":"点赞数",
     "current_comments":"评论数",
     "duration_seconds":"视频时长（秒）",
+}
+
+GENERIC_CREATOR_FACT_FIELDS={
+    "subscriber_count":"订阅数",
+    "channel_view_count":"频道累计播放量",
+    "channel_video_count":"YouTube视频总数",
+    "stored_videos":"本地已存视频数",
 }
 FIELD_GROUPS=[]  # canonical hierarchy lives in field_registry.py
 
@@ -118,20 +126,15 @@ def _finish(bucket:dict[str,Any]):
     return out
 
 
-def _creator_cube(conn, channel_id:str, now):
-    rows=conn.execute(
-        """SELECT v.published_at,v.current_views,v.current_likes,v.current_comments,v.duration_seconds,
-                  s.suggested_role,s.brands_json suggested_brands,l.human_role,l.brands_json human_brands
-           FROM videos v
-           LEFT JOIN label_suggestions s ON s.video_id=v.video_id
-           LEFT JOIN video_labels l ON l.video_id=v.video_id
-           WHERE v.channel_id=?""",
-        (channel_id,),
-    ).fetchall()
+def _creator_cube_from_rows(rows:list[dict[str,Any]], taxonomy:dict[str,list[tuple[str,str]]], now):
+    """Build one creator cube from already-loaded rows.
+
+    V4.0.1 deliberately keeps SQL outside this function. Dashboard rebuilds can therefore
+    load all metric source rows once instead of issuing 2 SQL queries per Creator.
+    """
     buckets=defaultdict(_new_bucket)
     brands=set()
-    for rr in rows:
-        r=dict(rr)
+    for r in rows:
         system_role=r.get("suggested_role") or "pending"
         human_role=r.get("human_role")
         final_role=human_role or system_role
@@ -144,7 +147,7 @@ def _creator_cube(conn, channel_id:str, now):
         windows=["all"]
         if age is not None and age>=0:
             windows += [str(w) for w in WINDOWS if w and age<=w]
-        scopes=[("all","all"),("role",final_role)] + [("brand",str(b)) for b in final_brands if b]
+        scopes=[("all","all"),("role",final_role)] + [("brand",str(b)) for b in final_brands if b] + taxonomy.get(str(r.get("video_id")),[])
         for scope,value in scopes:
             for window in windows:
                 _add(buckets[(scope,value,window)],r)
@@ -154,26 +157,121 @@ def _creator_cube(conn, channel_id:str, now):
     return cube,brands
 
 
+def _load_metric_sources(conn, workspace_id:str=""):
+    """Bulk-load all video facts and active Workspace taxonomy assignments.
+
+    Query count is constant with Creator count:
+    - 1 query for all video facts/classification
+    - 1 query for all active Workspace taxonomy assignments
+    """
+    video_rows=conn.execute(
+        """SELECT v.channel_id,v.video_id,v.published_at,v.current_views,v.current_likes,v.current_comments,v.duration_seconds,
+                  s.suggested_role,s.brands_json suggested_brands,l.human_role,l.brands_json human_brands
+           FROM videos v
+           LEFT JOIN label_suggestions s ON s.video_id=v.video_id
+           LEFT JOIN video_labels l ON l.video_id=v.video_id
+           ORDER BY v.channel_id,v.video_id"""
+    ).fetchall()
+    by_creator:dict[str,list[dict[str,Any]]]=defaultdict(list)
+    for rr in video_rows:
+        r=dict(rr)
+        by_creator[str(r["channel_id"])].append(r)
+
+    taxonomy_by_video:dict[str,list[tuple[str,str]]]={}
+    if workspace_id:
+        tax_rows=conn.execute(
+            """SELECT a.video_id,s.key scheme_key,l.key label_key,a.layer,a.assigned_at
+               FROM video_taxonomy_assignments a
+               JOIN taxonomy_schemes s ON s.id=a.scheme_id
+               JOIN taxonomy_labels l ON l.id=a.label_id
+               WHERE a.workspace_id=?
+               ORDER BY a.video_id,s.key,
+                        CASE a.layer WHEN 'human' THEN 40 WHEN 'ai' THEN 30 WHEN 'derived' THEN 20 ELSE 10 END DESC,
+                        a.assigned_at DESC""",
+            (workspace_id,),
+        ).fetchall()
+        best={}
+        for tr in tax_rows:
+            key=(str(tr["video_id"]),str(tr["scheme_key"]))
+            if key not in best:
+                best[key]=str(tr["label_key"])
+        for (vid,scheme),label in best.items():
+            taxonomy_by_video.setdefault(vid,[]).append((f"tax_{scheme}",label))
+    return by_creator,taxonomy_by_video,len(video_rows)
+
+
+def _creator_cube(conn, channel_id:str, now, workspace_id:str=""):
+    """Compatibility helper for single-Creator callers.
+
+    Dashboard bulk builds use _load_metric_sources() + _creator_cube_from_rows().
+    """
+    rows=[dict(r) for r in conn.execute(
+        """SELECT v.video_id,v.published_at,v.current_views,v.current_likes,v.current_comments,v.duration_seconds,
+                  s.suggested_role,s.brands_json suggested_brands,l.human_role,l.brands_json human_brands
+           FROM videos v
+           LEFT JOIN label_suggestions s ON s.video_id=v.video_id
+           LEFT JOIN video_labels l ON l.video_id=v.video_id
+           WHERE v.channel_id=?""",
+        (channel_id,),
+    ).fetchall()]
+    taxonomy:dict[str,list[tuple[str,str]]]={}
+    if workspace_id:
+        tax_rows=conn.execute(
+            """SELECT a.video_id,s.key scheme_key,l.key label_key,a.layer,a.assigned_at
+               FROM video_taxonomy_assignments a
+               JOIN taxonomy_schemes s ON s.id=a.scheme_id
+               JOIN taxonomy_labels l ON l.id=a.label_id
+               JOIN videos v ON v.video_id=a.video_id
+               WHERE a.workspace_id=? AND v.channel_id=?
+               ORDER BY a.video_id,s.key,
+                        CASE a.layer WHEN 'human' THEN 40 WHEN 'ai' THEN 30 WHEN 'derived' THEN 20 ELSE 10 END DESC,
+                        a.assigned_at DESC""",
+            (workspace_id,channel_id),
+        ).fetchall()
+        best={}
+        for tr in tax_rows:
+            k=(str(tr["video_id"]),str(tr["scheme_key"]))
+            if k not in best: best[k]=str(tr["label_key"])
+        for (vid,scheme),label in best.items():
+            taxonomy.setdefault(vid,[]).append((f"tax_{scheme}",label))
+    return _creator_cube_from_rows(rows,taxonomy,now)
+
 def _count(cube, scope, value):
     return int((((cube.get(scope) or {}).get(value) or {}).get("all") or {}).get("count") or 0)
 
 
-def build_creator_facts(creators:list[dict[str,Any]])->dict[str,Any]:
-    """Build the creator-grain facts payload used by interactive Dashboard pages.
+def build_creator_facts(creators:list[dict[str,Any]], conn=None)->dict[str,Any]:
+    """Build creator-grain facts for the active Workspace.
 
-    This path is intentionally lightweight: counts already aggregated by _creator_rows()
-    are reused, so refreshing Creator facts does not rebuild HTML or scan every video cube.
+    Global YouTube facts are always present. Workspace relationships/business metrics are
+    projected dynamically. Cloud-phone legacy fields remain only when the compatibility
+    Workspace is active, so old saved metrics/rules continue to work.
     """
+    ctx=active_workspace_context(conn) if conn is not None else {"workspace":None,"business_metrics":[]}
+    ws=ctx.get("workspace") or {}
+    wid=str(ws.get("id") or "")
+    cloud=((ws.get("metadata") or {}).get("compatibility_profile")=="cloud_phone_v1")
+    business_defs={str(x.get("key")):x for x in ctx.get("business_metrics") or []}
+
+    latest_business={}
+    relationships={}
+    if conn is not None and wid:
+        for r in conn.execute("""SELECT m.channel_id,m.metric_key,m.metric_value
+                                 FROM creator_business_metrics m
+                                 JOIN (SELECT channel_id,metric_key,MAX(captured_at) captured_at
+                                       FROM creator_business_metrics GROUP BY channel_id,metric_key) x
+                                   ON x.channel_id=m.channel_id AND x.metric_key=m.metric_key AND x.captured_at=m.captured_at
+                                 ORDER BY m.id DESC""").fetchall():
+            k=(str(r["channel_id"]),str(r["metric_key"]))
+            if k not in latest_business: latest_business[k]=r["metric_value"]
+        rel_rows=conn.execute("""SELECT channel_id,relationship_type,status
+                                 FROM creator_relationships WHERE workspace_id=?""",(wid,)).fetchall()
+        for r in rel_rows:
+            key=f"relationship__{str(r['relationship_type']).strip().lower()}__{str(r['status']).strip().lower()}"
+            relationships.setdefault(str(r["channel_id"]),set()).add(key)
+
     facts=[]
     for c in creators:
-        ug=int(c.get("identified_ugphone") or c.get("ugphone_video_count") or 0)
-        comp=int(c.get("identified_competitor") or c.get("competitor_video_count") or 0)
-        daily=int(c.get("identified_daily") or c.get("daily_video_count") or 0)
-        brand_counts={
-            "ldcloud":int(c.get("ldcloud_videos") or c.get("ldcloud_video_count") or 0),
-            "redfinger":int(c.get("redfinger_videos") or c.get("redfinger_video_count") or 0),
-            "vsphone":int(c.get("vsphone_videos") or c.get("vsphone_video_count") or 0),
-        }
         f={
             "channel_id":c["channel_id"],
             "channel_title":c.get("channel_title"),
@@ -202,75 +300,193 @@ def build_creator_facts(creators:list[dict[str,Any]])->dict[str,Any]:
             "sync_suspended":c.get("sync_suspended"),
             "priority":c.get("priority"),
             "monitoring_enabled":c.get("monitoring_enabled"),
-            "ugphone_video_count":ug,
-            "competitor_video_count":comp,
-            "daily_video_count":daily,
-            "ldcloud_video_count":brand_counts["ldcloud"],
-            "redfinger_video_count":brand_counts["redfinger"],
-            "vsphone_video_count":brand_counts["vsphone"],
-            "gmv_total":(float(c.get("gmv_total")) if c.get("gmv_total") is not None else None),
-            "new_users_total":(float(c.get("new_users_total")) if c.get("new_users_total") is not None else None),
-            "business_metric_count":int(c.get("business_metric_count") or 0),
-            "business_metric_updated_at":c.get("business_metric_updated_at"),
-            "gmv_snapshot_at":c.get("gmv_snapshot_at"),
-            "new_users_snapshot_at":c.get("new_users_snapshot_at"),
-            "gmv_currency":"USD" if c.get("gmv_total") is not None else "",
-            "partnered_ugphone":1 if ug>0 else 0,
-            "unpartnered_ugphone":1 if ug==0 else 0,
-            "competitor_creator":1 if comp>0 or sum(brand_counts.values())>0 else 0,
-            "ldcloud_creator":1 if brand_counts["ldcloud"]>0 else 0,
-            "redfinger_creator":1 if brand_counts["redfinger"]>0 else 0,
-            "vsphone_creator":1 if brand_counts["vsphone"]>0 else 0,
-            "ugphone_and_competitor":1 if ug>0 and (comp>0 or sum(brand_counts.values())>0) else 0,
-            "suspected_inactive_partner":1 if c.get("suspected_inactive_partner") else 0,
         }
+        for key in business_defs:
+            value=latest_business.get((str(c["channel_id"]),key))
+            f[f"business__{key}"]=float(value) if value is not None else None
+        for rel_key in relationships.get(str(c["channel_id"]),set()): f[rel_key]=1
+
+        if cloud:
+            ug=int(c.get("identified_ugphone") or c.get("ugphone_video_count") or 0)
+            comp=int(c.get("identified_competitor") or c.get("competitor_video_count") or 0)
+            daily=int(c.get("identified_daily") or c.get("daily_video_count") or 0)
+            brand_counts={
+                "ldcloud":int(c.get("ldcloud_videos") or c.get("ldcloud_video_count") or 0),
+                "redfinger":int(c.get("redfinger_videos") or c.get("redfinger_video_count") or 0),
+                "vsphone":int(c.get("vsphone_videos") or c.get("vsphone_video_count") or 0),
+            }
+            f.update({
+                "ugphone_video_count":ug,"competitor_video_count":comp,"daily_video_count":daily,
+                "ldcloud_video_count":brand_counts["ldcloud"],"redfinger_video_count":brand_counts["redfinger"],"vsphone_video_count":brand_counts["vsphone"],
+                "gmv_total":(float(c.get("gmv_total")) if c.get("gmv_total") is not None else None),
+                "new_users_total":(float(c.get("new_users_total")) if c.get("new_users_total") is not None else None),
+                "partnered_ugphone":1 if ug>0 else 0,"unpartnered_ugphone":1 if ug==0 else 0,
+                "competitor_creator":1 if comp>0 or sum(brand_counts.values())>0 else 0,
+                "ldcloud_creator":1 if brand_counts["ldcloud"]>0 else 0,
+                "redfinger_creator":1 if brand_counts["redfinger"]>0 else 0,
+                "vsphone_creator":1 if brand_counts["vsphone"]>0 else 0,
+                "ugphone_and_competitor":1 if ug>0 and (comp>0 or sum(brand_counts.values())>0) else 0,
+                "suspected_inactive_partner":1 if c.get("suspected_inactive_partner") else 0,
+            })
         facts.append(f)
-    return {"generated_at":now_utc(),"creators":facts}
+    return {"generated_at":now_utc(),"workspace_id":wid,"creators":facts}
 
 
-def build_metric_base(conn, creators:list[dict[str,Any]])->dict[str,Any]:
-    """Build the current video-grain aggregate cubes without writing Dashboard files."""
+def build_metric_base(conn, creators:list[dict[str,Any]], progress=None)->dict[str,Any]:
+    """Build video-grain cubes and active Workspace field registry.
+
+    V4.0.1 removes the previous N+1 SQL path. All video/classification rows and active
+    Workspace taxonomy assignments are loaded once and grouped in Python.
+    """
+    def emit(stage:str,current:int=0,total:int=0,message:str=""):
+        if progress:
+            progress(stage,current,total,message)
+
     now=parse_iso(now_utc())
+    ctx=active_workspace_context(conn)
+    ws=ctx.get("workspace") or {}
+    wid=str(ws.get("id") or "")
+    cloud=((ws.get("metadata") or {}).get("compatibility_profile")=="cloud_phone_v1")
+
+    emit("metric_sources",0,len(creators),"loading video facts and taxonomy in bulk")
+    video_by_creator,taxonomy_by_video,video_row_count=_load_metric_sources(conn,wid)
+    emit("metric_sources",len(creators),len(creators),f"loaded {video_row_count:,} video rows")
+
     cubes={}
     brands=set()
-    for c in creators:
-        cube,found=_creator_cube(conn,c["channel_id"],now)
-        cubes[c["channel_id"]]=cube
+    total=len(creators)
+    for i,c in enumerate(creators,1):
+        cid=str(c["channel_id"])
+        cube,found=_creator_cube_from_rows(video_by_creator.get(cid,[]),taxonomy_by_video,now)
+        cubes[cid]=cube
         brands.update(found)
+        if i==1 or i==total or i%50==0:
+            emit("metric_cubes",i,total,f"built {i:,}/{total:,} creator cubes")
+
+    creator_fields=dict(GENERIC_CREATOR_FACT_FIELDS)
+    creator_labels={}
+    video_filters={}
+    workspace_brands={str(b.get("key")):str(b.get("display_name") or b.get("key")) for b in ctx.get("brands") or []}
+    for bkey,bname in workspace_brands.items():
+        video_filters[f"brand:{bkey}"]=f"{bname} 内容"
+    for scheme in ctx.get("taxonomies") or []:
+        skey=str(scheme.get("key") or "")
+        for label in scheme.get("labels") or []:
+            video_filters[f"tax_{skey}:{label.get('key')}"]=f"{scheme.get('name')} · {label.get('name')}"
+    for m in ctx.get("business_metrics") or []:
+        creator_fields[f"business__{m.get('key')}"]=str(m.get("name") or m.get("key"))
+    rel_rows=conn.execute("""SELECT DISTINCT relationship_type,status FROM creator_relationships
+                             WHERE workspace_id=? ORDER BY relationship_type,status""",(wid,)).fetchall() if wid else []
+    for r in rel_rows:
+        key=f"relationship__{str(r['relationship_type']).strip().lower()}__{str(r['status']).strip().lower()}"
+        creator_labels[key]=f"{r['relationship_type']} · {r['status']}"
+
+    roles=[]
+    if cloud:
+        creator_fields.update(CREATOR_FACT_FIELDS)
+        creator_labels.update(CREATOR_LABELS)
+        video_filters.update(VIDEO_FILTERS)
+        roles=list(ROLES)
+        brands.update(CORE_BRANDS)
+
+    registry=registry_payload(creator_fields,creator_labels,VIDEO_FACT_FIELDS,[])
     return {
-        "schema_version":1,
+        "schema_version":2,
         "generated_at":now_utc(),
+        "workspace":ws,
         "windows":["all","7","30","60","90","180","365"],
-        "roles":list(ROLES),
-        "brands":sorted(brands|set(CORE_BRANDS)),
+        "roles":roles,
+        "brands":sorted(brands|set(workspace_brands)),
         "cubes":cubes,
-        "creator_fact_fields":CREATOR_FACT_FIELDS,
-        "creator_labels":CREATOR_LABELS,
+        "creator_fact_fields":creator_fields,
+        "creator_labels":creator_labels,
         "video_fact_fields":VIDEO_FACT_FIELDS,
-        "video_filters":VIDEO_FILTERS,
-        "field_registry":field_registry_payload(),
-        # Read-only aliases for legacy configurations. New UI never exposes these names.
-        "objective_fields":CREATOR_FACT_FIELDS,
-        "aggregate_labels":CREATOR_LABELS,
+        "video_filters":video_filters,
+        "field_registry":registry,
+        "objective_fields":creator_fields,
+        "aggregate_labels":creator_labels,
         "video_objectives":VIDEO_FACT_FIELDS,
-        "video_labels":VIDEO_FILTERS,
+        "video_labels":video_filters,
     }
 
 
-def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:dict[str,Any], static_js:Path)->dict[str,int]:
+def _metric_source_signature(conn, workspace_id:str, workspace_ctx:dict[str,Any])->str:
+    """Cheap cache key for metric_base.js.
+
+    It covers source row counts/max timestamps plus Workspace definitions. If any source
+    that can affect a cube changes, the cache is invalidated.
+    """
+    def one(sql,params=()):
+        r=conn.execute(sql,params).fetchone()
+        return list(r) if r is not None else []
+
+    payload={
+        "workspace_id":workspace_id,
+        "workspace_context":workspace_ctx,
+        "videos":one("SELECT COUNT(*),COALESCE(MAX(last_metric_at),''),COALESCE(MAX(published_at),''),COALESCE(MAX(discovered_at),'') FROM videos"),
+        "suggestions":one("SELECT COUNT(*),COALESCE(MAX(generated_at),'') FROM label_suggestions"),
+        "human_labels":one("SELECT COUNT(*),COALESCE(MAX(labeled_at),'') FROM video_labels"),
+        "taxonomy":one("SELECT COUNT(*),COALESCE(MAX(assigned_at),'') FROM video_taxonomy_assignments WHERE workspace_id=?",(workspace_id,)) if workspace_id else [],
+        "relationships":one("SELECT COUNT(*),COALESCE(MAX(updated_at),'') FROM creator_relationships WHERE workspace_id=?",(workspace_id,)) if workspace_id else [],
+    }
+    import hashlib
+    raw=json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:dict[str,Any], static_js:Path, progress=None)->dict[str,int]:
     assets=out/"assets"
     assets.mkdir(parents=True,exist_ok=True)
-    facts_payload=build_creator_facts(creators)
-    base=build_metric_base(conn,creators)
+
+    def emit(stage:str,current:int=0,total:int=0,message:str=""):
+        if progress:
+            progress(stage,current,total,message)
+
+    emit("creator_facts",0,len(creators),"building creator-grain facts")
+    facts_payload=build_creator_facts(creators,conn)
+    emit("creator_facts",len(creators),len(creators),f"built {len(facts_payload['creators']):,} creator facts")
+
+    ctx=active_workspace_context(conn)
+    wid=str((ctx.get("workspace") or {}).get("id") or "")
+    signature=_metric_source_signature(conn,wid,ctx)
+    meta_path=assets/"metric_base.meta.json"
+    metric_path=assets/"metric_base.js"
+
+    cache_hit=False
+    if meta_path.exists() and metric_path.exists():
+        try:
+            meta=json.loads(meta_path.read_text(encoding="utf-8"))
+            cache_hit=(meta.get("signature")==signature and int(meta.get("schema_version") or 0)==2)
+        except Exception:
+            cache_hit=False
+
+    if cache_hit:
+        emit("metric_cache",1,1,"metric_base.js cache hit; cube rebuild skipped")
+        cube_count=int((meta.get("cube_count") or len(creators)))
+    else:
+        emit("metric_cache",0,1,"metric cache miss; rebuilding")
+        base=build_metric_base(conn,creators,progress=progress)
+        emit("metric_write",0,1,"serializing metric_base.js")
+        metric_path.write_text(
+            "window.CDH_METRIC_BASE="+json.dumps(base,ensure_ascii=False,separators=(",",":"))+";\n",
+            encoding="utf-8",
+        )
+        cube_count=len(base["cubes"])
+        meta_path.write_text(json.dumps({
+            "schema_version":2,
+            "signature":signature,
+            "workspace_id":wid,
+            "cube_count":cube_count,
+            "generated_at":now_utc(),
+        },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+        emit("metric_write",1,1,f"wrote {cube_count:,} creator cubes")
+
     (assets/"creator_facts.js").write_text(
         "window.CDH_CREATOR_FACTS="+json.dumps(facts_payload,ensure_ascii=False,separators=(",",":"))+";\n",
         encoding="utf-8",
     )
-    (assets/"metric_base.js").write_text(
-        "window.CDH_METRIC_BASE="+json.dumps(base,ensure_ascii=False,separators=(",",":"))+";\n",
-        encoding="utf-8",
-    )
-    row=conn.execute("SELECT value_json FROM app_settings WHERE key='secondary_metrics'").fetchone()
+    row=conn.execute("SELECT value_json FROM workspace_settings WHERE workspace_id=? AND key='secondary_metrics'",(wid,)).fetchone() if wid else None
+    if not row:
+        row=conn.execute("SELECT value_json FROM app_settings WHERE key='secondary_metrics'").fetchone()
     saved=json_load(row["value_json"],None) if row else load_metric_config()
     (assets/"metrics_config.js").write_text(
         "window.CDH_SAVED_METRIC_CONFIG="+(json.dumps(saved,ensure_ascii=False,separators=(",",":")) if saved else "null")+";\n",
@@ -283,4 +499,5 @@ def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:
     overview_js=static_js.parent/"overview_filters.js"
     if overview_js.exists():
         (assets/"overview_filters.js").write_text(overview_js.read_text(encoding="utf-8"),encoding="utf-8")
-    return {"creators":len(facts_payload["creators"]),"cubes":len(base["cubes"]),"video_rows_exported":0,"saved_config":int(bool(saved))}
+    return {"creators":len(facts_payload["creators"]),"cubes":cube_count,"video_rows_exported":0,"saved_config":int(bool(saved)),"metric_cache_hit":int(cache_hit)}
+

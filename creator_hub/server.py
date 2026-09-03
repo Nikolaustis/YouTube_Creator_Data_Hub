@@ -237,6 +237,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             # Stable V3.10 API contract. Legacy /api/* endpoints remain for the current Dashboard.
             if path=="/api/v1/field-registry":
                 mb=metric_base_payload(self.hub.db_path,self.hub.settings);return self._v1(mb.get("field_registry") or {})
+            if path=="/api/v1/workspaces/list":
+                return self._v1({"workspaces":self.hub.workspace.list(),"active":self.hub.workspace.active(),"templates":self.hub.workspace.templates()})
+            if path=="/api/v1/workspaces/context":
+                return self._v1(self.hub.workspace.context(str(b.get("workspace_id") or "")))
+            if path=="/api/v1/workspaces/create":
+                tpl=str(b.get("template_id") or "blank")
+                name=str(b.get("name") or "").strip()
+                ws=self.hub.workspace.install_template(tpl,name=name) if tpl!="blank" else self.hub.workspace.create_blank(name)
+                return self._v1(ws)
+            if path=="/api/v1/workspaces/set-active":
+                ws=self.hub.workspace.set_active(str(b.get("workspace_id") or ""))
+                self.hub.brand_cfg=self.hub.workspace.classifier_config(self.hub.legacy_brand_cfg)
+                build_dashboard(self.hub.db_path,self.output_dir,self.hub.settings)
+                return self._v1({"workspace":ws,"dashboard_rebuilt":True})
             if path=="/api/v1/jobs/start":
                 task=str(b.get("task") or "").strip();return self._v1(self._start_job(task,dict(b.get("payload") or {})))
             if path=="/api/v1/jobs/status": return self._v1(self.jobs.get(str(b.get("job_id") or "")))
@@ -271,12 +285,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if path=="/api/ai/config":
                 api_key=b.get("api_key")
                 clear_key=bool(b.get("clear_api_key"))
-                if (api_key or clear_key) and self.client_address[0] not in {".1","::1"}:
+                if (api_key or clear_key) and self.client_address[0] not in {"127.0.0.1","::1"}:
                     raise ValueError("API Key can only be configured from the local machine")
                 return self._json({"ok":True,**self.hub.configure_ai(dict(b.get("config") or b),api_key=(str(api_key) if api_key is not None else None),clear_api_key=clear_key)})
             if path=="/api/ai/models":
                 api_key=b.get("api_key")
-                if api_key and self.client_address[0] not in {".1","::1"}:
+                if api_key and self.client_address[0] not in {"127.0.0.1","::1"}:
                     raise ValueError("API Key can only be used from the local machine")
                 return self._json({"ok":True,**self.hub.ai_models(dict(b.get("config") or {}),api_key=(str(api_key) if api_key is not None else None))})
             if path=="/api/ai/test":
@@ -513,7 +527,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._json({"ok":False,"error":f"{type(e).__name__}: {e}"},500)
 
 
-def serve_dashboard(hub: CreatorHub, output_dir: str | Path, host: str=".1", port: int=8765, open_browser: bool=True):
+def serve_dashboard(hub: CreatorHub, output_dir: str | Path, host: str="127.0.0.1", port: int=8765, open_browser: bool=True):
     out=Path(output_dir); build_dashboard(hub.db_path,out,hub.settings)
     class H(DashboardHandler): pass
     H.hub=hub; H.output_dir=out; H.jobs=JobStore(hub.db_path)

@@ -75,10 +75,167 @@ def _m17(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_data_assertions_layer ON data_assertions(layer,created_at DESC)")
 
 
+
+def _m18(conn: sqlite3.Connection) -> None:
+    """Generic Creator Intelligence workspace foundation.
+
+    Migration 18 is deliberately domain-neutral: it creates only generic entities.
+    Brand/industry-specific defaults are installed later by WorkspaceService templates.
+    """
+    conn.execute("""CREATE TABLE IF NOT EXISTS workspaces(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        template_id TEXT NOT NULL DEFAULT 'blank',
+        status TEXT NOT NULL DEFAULT 'active',
+        is_default INTEGER NOT NULL DEFAULT 0,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_slug ON workspaces(slug)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS workspace_settings(
+        workspace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id,key),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS workspace_brands(
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'brand',
+        aliases_json TEXT NOT NULL DEFAULT '[]',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id,key),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_workspace_brands_workspace ON workspace_brands(workspace_id,role,display_name)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS brand_groups(
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id,key),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS brand_group_members(
+        group_id TEXT NOT NULL,
+        brand_id TEXT NOT NULL,
+        PRIMARY KEY(group_id,brand_id),
+        FOREIGN KEY(group_id) REFERENCES brand_groups(id) ON DELETE CASCADE,
+        FOREIGN KEY(brand_id) REFERENCES workspace_brands(id) ON DELETE CASCADE
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS taxonomy_schemes(
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        entity_type TEXT NOT NULL DEFAULT 'video',
+        multi_select INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id,key),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS taxonomy_labels(
+        id TEXT PRIMARY KEY,
+        scheme_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        parent_label_id TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(scheme_id,key),
+        FOREIGN KEY(scheme_id) REFERENCES taxonomy_schemes(id) ON DELETE CASCADE,
+        FOREIGN KEY(parent_label_id) REFERENCES taxonomy_labels(id) ON DELETE SET NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS video_taxonomy_assignments(
+        workspace_id TEXT NOT NULL,
+        video_id TEXT NOT NULL,
+        scheme_id TEXT NOT NULL,
+        label_id TEXT NOT NULL,
+        layer TEXT NOT NULL DEFAULT 'derived' CHECK(layer IN ('fact','derived','ai','human')),
+        source_ref TEXT,
+        assigned_at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id,video_id,scheme_id,label_id,layer),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        FOREIGN KEY(video_id) REFERENCES videos(video_id) ON DELETE CASCADE,
+        FOREIGN KEY(scheme_id) REFERENCES taxonomy_schemes(id) ON DELETE CASCADE,
+        FOREIGN KEY(label_id) REFERENCES taxonomy_labels(id) ON DELETE CASCADE
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_video_taxonomy_workspace_video ON video_taxonomy_assignments(workspace_id,video_id,scheme_id)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS creator_relationships(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        brand_id TEXT,
+        relationship_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        source_ref TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id,channel_id,brand_id,relationship_type,status),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        FOREIGN KEY(channel_id) REFERENCES creators(channel_id) ON DELETE CASCADE,
+        FOREIGN KEY(brand_id) REFERENCES workspace_brands(id) ON DELETE CASCADE
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_creator_relationships_workspace ON creator_relationships(workspace_id,channel_id,relationship_type,status)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS business_metric_definitions(
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        value_type TEXT NOT NULL DEFAULT 'number',
+        unit TEXT,
+        currency TEXT,
+        aggregation TEXT NOT NULL DEFAULT 'sum',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id,key),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS discovery_profiles(
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        profile_json TEXT NOT NULL DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id,key),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS workspace_presets(
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        preset_type TEXT NOT NULL,
+        key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id,preset_type,key),
+        FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    )""")
+
 def _checksum(name: str, version: int) -> str:
     return hashlib.sha256(f'{version}:{name}:v1'.encode()).hexdigest()
 
-MIGRATIONS=[Migration(17,'core_architecture_foundation',_m17,_checksum('core_architecture_foundation',17))]
+MIGRATIONS=[
+    Migration(17,'core_architecture_foundation',_m17,_checksum('core_architecture_foundation',17)),
+    Migration(18,'generic_workspace_foundation',_m18,_checksum('generic_workspace_foundation',18)),
+]
 
 
 def run_migrations(conn: sqlite3.Connection, current_version: int, target_version: int) -> list[int]:
