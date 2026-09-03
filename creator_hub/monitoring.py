@@ -26,17 +26,46 @@ def monitoring_data_fresh(
     now: datetime | None = None,
     scheduler_grace_hours: float = 6.0,
 ) -> bool:
-    """Whether the latest successful creator sync is fresh enough for status inference.
-
-    The Windows task wakes at most every six hours in the default setup, so a creator is
-    considered fresh through one configured cadence plus one scheduler wake-up grace.
-    """
+    """Whether the latest successful sync is fresh enough for status inference."""
     last = parse_iso(last_synced_at)
     current = now or parse_iso(now_utc())
     if not last or not current:
         return False
     age_hours = max(0.0, (current - last).total_seconds() / 3600.0)
     return age_hours <= due_hours(settings, priority, "incremental") + float(scheduler_grace_hours)
+
+
+def suspected_inactive_relationship(
+    settings: dict[str, Any],
+    *,
+    monitoring_enabled: bool | int,
+    priority: str | None,
+    last_synced_at: str | None,
+    relationship_evidence_count: int | float | None,
+    latest_relationship_evidence_at: str | None,
+    inactive_days: float = 30.0,
+    now: datetime | None = None,
+) -> bool:
+    """Domain-neutral inactivity heuristic for an evidenced Creator relationship.
+
+    The warning is deliberately conservative: the Creator must still be monitored, the
+    relationship must have historical evidence, the monitoring data must be fresh, and
+    the most recent relationship evidence must be older than the configured threshold.
+    """
+    if not bool(monitoring_enabled) or float(relationship_evidence_count or 0) <= 0:
+        return False
+    current = now or parse_iso(now_utc())
+    latest = parse_iso(latest_relationship_evidence_at)
+    if not current or not latest:
+        return False
+    if not monitoring_data_fresh(
+        settings,
+        priority=priority,
+        last_synced_at=last_synced_at,
+        now=current,
+    ):
+        return False
+    return (current - latest).total_seconds() >= float(inactive_days) * 86400.0
 
 
 def suspected_inactive_partner(
@@ -50,22 +79,18 @@ def suspected_inactive_partner(
     inactive_days: float = 30.0,
     now: datetime | None = None,
 ) -> bool:
-    """Infer the warning label '疑似不再合作'.
+    """Backward-compatible cloud-phone alias.
 
-    This is deliberately conservative: the creator must have historical UgPhone evidence,
-    remain in monitoring, have fresh sync data, and have no UgPhone upload for >= 30 days.
+    New Core code should call :func:`suspected_inactive_relationship`. The legacy
+    signature remains so existing Dashboard and saved metric behavior do not break.
     """
-    if not bool(monitoring_enabled) or float(ugphone_video_count or 0) <= 0:
-        return False
-    current = now or parse_iso(now_utc())
-    latest = parse_iso(latest_ugphone_upload)
-    if not current or not latest:
-        return False
-    if not monitoring_data_fresh(
+    return suspected_inactive_relationship(
         settings,
+        monitoring_enabled=monitoring_enabled,
         priority=priority,
         last_synced_at=last_synced_at,
-        now=current,
-    ):
-        return False
-    return (current - latest).total_seconds() >= float(inactive_days) * 86400.0
+        relationship_evidence_count=ugphone_video_count,
+        latest_relationship_evidence_at=latest_ugphone_upload,
+        inactive_days=inactive_days,
+        now=now,
+    )

@@ -1,86 +1,292 @@
 {
-  "package": "YouTube_Creator_Intelligence_Hub",
-  "release_version": "4.0.2",
-  "baseline": "4.0.1",
-  "type": "direct_root_overlay_upgrade",
-  "upgrade_entrypoint": "upgrade.cmd",
-  "stable_helper_filenames": true,
-  "uses_overlay_directory": false,
-  "database_schema": 18,
-  "database_changes": false,
-  "preserves_existing_facts": true,
-  "interactive_host": "127.0.0.1",
-  "interactive_port": 8765,
+  "name": "youtube-creator-intelligence-hub-engineering-overlay",
+  "version": "4.1.0",
+  "type": "cover-package",
+  "database_included": false,
+  "schema_version": 18,
+  "upgrade_compatible": true,
+  "delete_after_apply": [
+    "__pycache__/",
+    "creator_hub/**/__pycache__/",
+    "scripts/__pycache__/",
+    "*.pyc",
+    "patches/"
+  ],
   "files": [
     {
+      "path": ".editorconfig",
+      "size_bytes": 233,
+      "sha256": "399f238d5f5abe6fcde577a041427ce520e80349f89f707c5a7b93893cad4015"
+    },
+    {
+      "path": ".env.example",
+      "size_bytes": 98,
+      "sha256": "1db614df33eac4bfed35fa55e896d940bf6f04f5da4f20cbb15a09ba3859c975"
+    },
+    {
+      "path": ".gitattributes",
+      "size_bytes": 162,
+      "sha256": "f755eb95b4cc7060a11b783c20ac96458e929856f8be8664d2a07c5b5db2c448"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "size_bytes": 1030,
+      "sha256": "8585bda3cfe76aa4abb132bba403cae33493dbde6e653d241ca67cd62a65e549"
+    },
+    {
+      "path": ".gitignore",
+      "size_bytes": 418,
+      "sha256": "216e936f639822a56b5e6b75d1c92b227dae95eef8f8528216f0793e28f36b64"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "size_bytes": 1163,
+      "sha256": "7e14bd844a022225bcb724bac07f8113f382b265bc5c6b622b2993f9024d383f"
+    },
+    {
+      "path": "GITHUB_DELETE_LIST.txt",
+      "size_bytes": 259,
+      "sha256": "a8cdd53f37a0493c70eec6b94c69e4f0e4b2dc285c9495b8fbebdc77b2664d50"
+    },
+    {
+      "path": "OVERLAY_INSTALL.txt",
+      "size_bytes": 665,
+      "sha256": "b0ebbc24a6a21681771e1f97b91776966de3799af2f9f43f159f0951ec3482e6"
+    },
+    {
       "path": "README.md",
-      "size": 9123,
-      "sha256": "c3ba35f4de8f70b6f3f20a5de66b48b92fd779aac40db92a448b91e575dfe8df"
+      "size_bytes": 5886,
+      "sha256": "19a3e3b6797b641988f01617fe98289f8e29012e1cf2db65c02560c9ddf32a20"
+    },
+    {
+      "path": "SECURITY.md",
+      "size_bytes": 688,
+      "sha256": "138f827bead634aeb6b5902926bc7c58fa6c84f250c6ec7706af681f73679f28"
     },
     {
       "path": "SKILL.md",
-      "size": 10292,
-      "sha256": "0576385d6a6d120e24cc39d4295f8a72381a7ad0a9a38edfd38b4eb7bff66d5c"
+      "size_bytes": 3391,
+      "sha256": "05cfd52a56439cf4a6c32b271276e860d961654d76e4801080832dc7adabc217"
     },
     {
       "path": "VERSION",
-      "size": 6,
-      "sha256": "c6d3fb057b198f1d0563d4218d4e36b48df752251aabffe78ea60aac5a72c7a2"
+      "size_bytes": 6,
+      "sha256": "3b10b6ad566eadbcacadb33c591f1ec629593d6adf47442e56e0f61996829ef7"
     },
     {
       "path": "apply_upgrade.py",
-      "size": 3422,
-      "sha256": "71ab8039632b6b009fcf3b4273cd00365ecbfb624aafe3353c69533d43749253"
+      "size_bytes": 1874,
+      "sha256": "25f7166876c0cc8f053418b39e92b28f330d0f5b6d49e4beb1d195df695a4155"
+    },
+    {
+      "path": "create-demo.cmd",
+      "size_bytes": 228,
+      "sha256": "c37e9707ed06af86cbfa23d4a4938ab558a9f2a3a18290f519110030494f6180"
     },
     {
       "path": "creator_hub/__init__.py",
-      "size": 22,
-      "sha256": "d540fa4ca8352bf7f9ac8cc72d81efdd2bb7a369cfa5b123d65a39e4ce298ed3"
+      "size_bytes": 22,
+      "sha256": "8de809318b925bdd152a2328b5574d01a901bd854f8ab9be039a1ec8956e847f"
     },
     {
-      "path": "creator_hub/dashboard.py",
-      "size": 123643,
-      "sha256": "b7a2475733603ba837467ce8db56c38402b3b657f75efce5318e0e4bfedcf5c5"
+      "path": "creator_hub/ai/workspace_tools.py",
+      "size_bytes": 4489,
+      "sha256": "b077fb9dc9dfeabdf14ded2b1066d6b06138c9651e83769077eb47116b644e70"
     },
     {
-      "path": "creator_hub/server.py",
-      "size": 49725,
-      "sha256": "46dbabd476e0594618c1438e2f3dc0b1d24565f1e0a4d399247bab1321bb69cd"
+      "path": "creator_hub/api/__init__.py",
+      "size_bytes": 105,
+      "sha256": "1982b6fd027269e7bf5311651ce5070e3ace70f610ced5aab7ecd6ea721b76ee"
     },
     {
-      "path": "creator_hub/static/export_tools.js",
-      "size": 1285,
-      "sha256": "3c0101300f9b8b7cdd2fa4ab645335e783a3225915acafaa22ff3a59e0f3b7ab"
+      "path": "creator_hub/api/__main__.py",
+      "size_bytes": 651,
+      "sha256": "59b6ef49b53ec5078564ba3dac460abca56b4c550793a5322a69e2aac96c7e5e"
+    },
+    {
+      "path": "creator_hub/api/app.py",
+      "size_bytes": 4654,
+      "sha256": "c9907705721a8c373538c3871621fd8ca5f6b05eed8b851ac8929d83234d62e8"
+    },
+    {
+      "path": "creator_hub/api/models.py",
+      "size_bytes": 637,
+      "sha256": "6ffb9377f2e30fb48c54d471279b55d9437141ff57586382adfcba214aeb9219"
+    },
+    {
+      "path": "creator_hub/compat/__init__.py",
+      "size_bytes": 77,
+      "sha256": "ecc404ebb51cc1de2ea6d374c99b784c6a4e442d69201d47efe3c14067aec8c4"
+    },
+    {
+      "path": "creator_hub/compat/cloud_phone.py",
+      "size_bytes": 885,
+      "sha256": "50d4e174b964d82e09343d2a1bea4d513251fe075e159a37bc5ed890044c8071"
+    },
+    {
+      "path": "creator_hub/field_registry.py",
+      "size_bytes": 5664,
+      "sha256": "b6ddfccc45e8012ac69ff25b6be5236a1b158b00f21759c4b765764f249d9522"
+    },
+    {
+      "path": "creator_hub/jobs.py",
+      "size_bytes": 23163,
+      "sha256": "9c477da80e947e67eaddf2d8cd5d52bd30a99f4a7e8c9ce56113ae6080bea6f4"
+    },
+    {
+      "path": "creator_hub/monitoring.py",
+      "size_bytes": 3389,
+      "sha256": "a95c99796e72c402ebccf8bc4687ac6c63b112e8c6149394c87d427de7c257c0"
+    },
+    {
+      "path": "creator_hub/portfolio/__init__.py",
+      "size_bytes": 82,
+      "sha256": "90f4622d3c3fe77f79b034829f76c4682a518b446493d0188b684d8d94c4c2e9"
+    },
+    {
+      "path": "creator_hub/portfolio/ai_eval.py",
+      "size_bytes": 4588,
+      "sha256": "26ce4dcde35721486da592c066f1713c610414ebc88a562344c5aa99ed3b7bd2"
+    },
+    {
+      "path": "creator_hub/portfolio/benchmark.py",
+      "size_bytes": 4389,
+      "sha256": "aa06e4adae61287a388b5cc1ce96037b4b85fc4635a6f6f65735be07ed474ea6"
+    },
+    {
+      "path": "creator_hub/portfolio/demo.py",
+      "size_bytes": 16138,
+      "sha256": "63b90e17fa42dc2d7a1a80a05a3f4d37ee8348f745e2ecbfdf5102c845e06f76"
+    },
+    {
+      "path": "docs/AI_EVALUATION.md",
+      "size_bytes": 565,
+      "sha256": "3779088b64860bdd6739a81ed53418981f16a33f329599a95931acb0b9d11eee"
+    },
+    {
+      "path": "docs/API_FASTAPI.md",
+      "size_bytes": 499,
+      "sha256": "f46de2382e0e4171227cabce0b3b2ff2e603a2815bc6a93d7344c7ccb291ede0"
     },
     {
       "path": "docs/ARCHITECTURE.md",
-      "size": 7088,
-      "sha256": "ccf677574b42e693ffbefdf1a2723dd9d46f728abdc447751320a124270d7b06"
+      "size_bytes": 1784,
+      "sha256": "048200d5985e88b4f8f0e78ce1f7d4070a716ff10a587d22e38a8e883527d8c0"
     },
     {
-      "path": "docs/INSTALLATION.md",
-      "size": 3998,
-      "sha256": "3e07843f9159d42e1b6a2a48107260cce90ec2d03949a74cb3e126e8640654fb"
+      "path": "docs/BENCHMARKS.md",
+      "size_bytes": 693,
+      "sha256": "9e977fa4e3063424607cde777f4e067eb57b0689f6c333415a542db3bf1441ac"
     },
     {
-      "path": "hub.py",
-      "size": 18765,
-      "sha256": "9b5959818615e0c02a11d7e111fd34063e774e9ccb854d35426501676cc185ad"
+      "path": "docs/GITHUB_PUBLIC_REPO.md",
+      "size_bytes": 1161,
+      "sha256": "3210da59bcfae134741517392a741a45d25b30c7e9a6001a49d29b4a188af29e"
     },
     {
-      "path": "setup.cmd",
-      "size": 3946,
-      "sha256": "1ce5f8496c30a3696b667bf68dc7ccf0866e46ea1cffc243a2050d65c56f83ef"
+      "path": "docs/PORTFOLIO.md",
+      "size_bytes": 977,
+      "sha256": "dab7921a675d488439a1f3c4666f53b742505c7aefa944030b287d910308c02e"
     },
     {
-      "path": "start-dashboard.cmd",
-      "size": 234,
-      "sha256": "2d09eb0110148ebc34410e32c0f49b2629db382dd8d28f49cc66c71c309eef31"
+      "path": "docs/RELEASE_NOTES_4.1.0.md",
+      "size_bytes": 1150,
+      "sha256": "ba3d0f5e81abe85bd4310a698e1d745c5a0be410fa007b43ab89cb833ced83ec"
+    },
+    {
+      "path": "evals/cases.jsonl",
+      "size_bytes": 835,
+      "sha256": "b9f5aa9385746178ee26167307674ee7b8f81c5fe0978e2d671285aa72ff87a0"
+    },
+    {
+      "path": "pyproject.toml",
+      "size_bytes": 171,
+      "sha256": "71dbb5113ee6f9f3b9e475e305b8f74a60a548aa21b4c75e876344d7a4ec0f74"
+    },
+    {
+      "path": "requirements-dev.txt",
+      "size_bytes": 63,
+      "sha256": "7ea541f04062117bab3d99cdc54763f40a66124ce489016fb792c8b4ad051579"
+    },
+    {
+      "path": "requirements.txt",
+      "size_bytes": 69,
+      "sha256": "c6e92415adae567ad10623e8e5c41cdea17d3580547e7e43d098aac335ff7af7"
+    },
+    {
+      "path": "run-ai-eval.cmd",
+      "size_bytes": 108,
+      "sha256": "39df451677a477c6c027f5f37a331ceb5b2df42127394873046b2bddc3577389"
+    },
+    {
+      "path": "run-benchmark.cmd",
+      "size_bytes": 170,
+      "sha256": "5f86fdf2ada9c1eb49ab4f552b338878f02fc22ee138353dab679cb398693358"
+    },
+    {
+      "path": "scripts/__init__.py",
+      "size_bytes": 38,
+      "sha256": "0d1d10b0126c3de78a20624bd1a77f12f4a98b70784ff3147b03b042d57a16f1"
+    },
+    {
+      "path": "scripts/check_core_portability.py",
+      "size_bytes": 1674,
+      "sha256": "ae2dbce2df29d2b25c250bc9cd327f80dae9e5279c398989902988095185c19c"
+    },
+    {
+      "path": "scripts/repo_hygiene.py",
+      "size_bytes": 1470,
+      "sha256": "627d2ff6925384a8ecd0a5ddd37b8372dccd71b75efe4719a1f66aa413601b12"
+    },
+    {
+      "path": "setup-demo.cmd",
+      "size_bytes": 618,
+      "sha256": "5af2f4870b7f8003b78929fc76473a7911c6311527d07b474172f938b9501e2c"
+    },
+    {
+      "path": "start-api.cmd",
+      "size_bytes": 94,
+      "sha256": "e5a637a8d7f7bc9147cc66f3c79045096b811e61e250ff2a520ee17ea5be4951"
+    },
+    {
+      "path": "start-demo.cmd",
+      "size_bytes": 200,
+      "sha256": "1eeccf640914bcde2009a4839debcbeef386e8d40e68eb0b78e4cf0d3fb5691e"
+    },
+    {
+      "path": "tests/test_ai_eval.py",
+      "size_bytes": 330,
+      "sha256": "a86189d4032e937f2cd73852c7584958d3ebacbb9c7d7e1e52fd7bd0d6f894de"
+    },
+    {
+      "path": "tests/test_core_portability.py",
+      "size_bytes": 125,
+      "sha256": "16395042fab7c0a95088b8a2f2b9b18c1bf7a9b4419513f89e41f1a2941c8d24"
+    },
+    {
+      "path": "tests/test_demo_dataset.py",
+      "size_bytes": 931,
+      "sha256": "db4cca3b708dce7f98381f903610810a5f74ec4e77006bbe2b34fcb31093ef92"
+    },
+    {
+      "path": "tests/test_fastapi_surface.py",
+      "size_bytes": 732,
+      "sha256": "19e1fc02a4007a2b20cecb8cb3ba4cfc82c449e341f89633d2b330ac9eeb6b03"
+    },
+    {
+      "path": "tests/test_jobs_durability.py",
+      "size_bytes": 2923,
+      "sha256": "aae7322e1ca51f6ac10807382127485c6a7ff11bc987901db2c93f06d1b91cce"
+    },
+    {
+      "path": "tests/test_monitoring_generic.py",
+      "size_bytes": 926,
+      "sha256": "b2c3e8c94ced818e9c1c2b323a495781e8e93ad30787eb4c6ffc68c6fbfe38bb"
     },
     {
       "path": "upgrade.cmd",
-      "size": 922,
-      "sha256": "a340e4aa7ef8e76f8790472b51107f6c435b8666ad33f9a1c95173ccc53f9e66"
+      "size_bytes": 1339,
+      "sha256": "cba6efd5ed459a4f156a9c237a215c884f57ff95fbfea505ac3c021bf814eef7"
     }
   ]
 }

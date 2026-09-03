@@ -1,0 +1,11 @@
+YouTube Creator Intelligence Hub 4.1.0 engineering overlay
+
+1. Back up the current project directory or commit your current Git state.
+2. Extract this ZIP into the repository root and allow file replacement.
+3. Run upgrade.cmd.
+4. For the public GitHub repository, commit the deletions produced by scripts/repo_hygiene.py.
+   GITHUB_DELETE_LIST.txt documents historical tracked artifacts that should disappear.
+5. Run setup-demo.cmd to create the synthetic public demo without API keys.
+6. Run start-api.cmd to inspect the typed API at http://127.0.0.1:8766/docs.
+
+The overlay does not include or replace the production SQLite database. Database schema remains 18.
