@@ -11,6 +11,7 @@ Database schema remains **18**.
 - Existing compatibility data is retained in its Workspace; no production Creator/Video facts are deleted.
 - Existing generic Workspace metric configurations are scanned for legacy domain-specific references. Removed entries are backed up once under `secondary_metrics_pre_neutral_4_2`.
 - Demo setup runs a neutral-surface migration before building synthetic data and validates the resulting UI.
+- Windows entrypoints now run the neutrality gate as a module; the checker also bootstraps the repository root onto `sys.path`, so direct file execution is safe.
 
 ## Upgrade
 
@@ -25,5 +26,5 @@ setup-demo.cmd
 or:
 
 ```bash
-python scripts/check_public_surface_neutrality.py
+python -m scripts.check_public_surface_neutrality
 ```

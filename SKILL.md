@@ -24,7 +24,7 @@ version: 4.2.0
 - Synthetic public demo: `create-demo.cmd`, then `start-demo.cmd`.
 - Benchmark: `run-benchmark.cmd` or `python -m creator_hub.portfolio.benchmark`.
 - AI evaluation: `run-ai-eval.cmd` or `python -m creator_hub.portfolio.ai_eval`.
-- Repository engineering checks: `pytest`, `ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/check_public_surface_neutrality.py scripts/repo_hygiene.py`, `python scripts/check_core_portability.py`, `python scripts/check_public_surface_neutrality.py`.
+- Repository engineering checks: `pytest`, `ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/check_public_surface_neutrality.py scripts/repo_hygiene.py`, `python scripts/check_core_portability.py`, `python -m scripts.check_public_surface_neutrality`.
 
 ## Creator workflows
 

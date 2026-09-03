@@ -91,7 +91,7 @@ pip install -r requirements-dev.txt
 pytest
 ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/check_public_surface_neutrality.py scripts/neutralize_public_surface.py scripts/repo_hygiene.py
 python scripts/check_core_portability.py
-python scripts/check_public_surface_neutrality.py
+python -m scripts.check_public_surface_neutrality
 ```
 
 ## Main commands

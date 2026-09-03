@@ -12,7 +12,8 @@
     "compatibility-opt-in",
     "demo-neutrality-gate",
     "generic-dashboard-relationships",
-    "public-docs-neutralization"
+    "public-docs-neutralization",
+    "windows-entrypoint-import-fix"
   ],
   "runtime_modified_files": [
     "creator_hub/dashboard.py",
@@ -45,7 +46,7 @@
     {
       "path": ".github/workflows/ci.yml",
       "size_bytes": 1218,
-      "sha256": "af22ab5e0b64eef198e495988d22a2e47ef88f075a10f104f618a6bfc42ceac2"
+      "sha256": "fbedd3cb17eb29c922e569c2ac1c02777f212c103d2900034900829af731e0fd"
     },
     {
       "path": ".gitignore",
@@ -70,7 +71,7 @@
     {
       "path": "README.md",
       "size_bytes": 5974,
-      "sha256": "6990d9a2e64f1768d1dbf2b0bfaefa12f7c7cfcd132d5b49b028f544da1d1e04"
+      "sha256": "c40cc56d096051761246556af81343450ab912a050ce035eebc1baccab48a7b4"
     },
     {
       "path": "SECURITY.md",
@@ -80,7 +81,7 @@
     {
       "path": "SKILL.md",
       "size_bytes": 3547,
-      "sha256": "c901b5d16d95b8710406ace750c26f295fc32550205991b39ed8e6e109598bec"
+      "sha256": "f6f1f4d925a52150f1d5e58a2fb0ad2f2f7f0f3e71551f9d843aa203256f4af5"
     },
     {
       "path": "VERSION",
@@ -219,8 +220,8 @@
     },
     {
       "path": "docs/RELEASE_NOTES_4.2.0.md",
-      "size_bytes": 1178,
-      "sha256": "e07ee1501c3e1373f2b68e5cd68f478a7a53572598902c84582047d74e8e6369"
+      "size_bytes": 1340,
+      "sha256": "1f0982859e8c05e9471880f7120d8185d0c4806d3adcee38ce16bcb2394bc2b3"
     },
     {
       "path": "docs/SECONDARY_METRICS.md",
@@ -269,8 +270,8 @@
     },
     {
       "path": "scripts/check_public_surface_neutrality.py",
-      "size_bytes": 3352,
-      "sha256": "0695bdd338c7907587bdc6f5aaa0755719daaa07218d4c293c472a4a9035f7b9"
+      "size_bytes": 3427,
+      "sha256": "a8c051821842029ae54e919b08c6e46af2ea7bd99c2dca82703d8f201ca361e1"
     },
     {
       "path": "scripts/neutralize_public_surface.py",
@@ -284,8 +285,8 @@
     },
     {
       "path": "setup-demo.cmd",
-      "size_bytes": 922,
-      "sha256": "fe5207ab5b061433e3ceafbb0eb688edef2dcd9c7fd2c93e04eaa138606f4564"
+      "size_bytes": 915,
+      "sha256": "1e5a29d08096bc9fcae2b4656b5aab8be7310a7d410eed90be48e62cec4559bd"
     },
     {
       "path": "start-api.cmd",
@@ -329,13 +330,13 @@
     },
     {
       "path": "tests/test_public_surface_neutrality.py",
-      "size_bytes": 317,
-      "sha256": "fcc288833c1a1b2419acea325f6d812aefeba948ece8cf1e9a24e7189014dba2"
+      "size_bytes": 831,
+      "sha256": "205b547fbfa5391c18d0e33f1d99ddbfe7ccec00e51849a7b3501248cf5a434d"
     },
     {
       "path": "upgrade.cmd",
-      "size_bytes": 1473,
-      "sha256": "d680972a2b7a940f99284de1c093de615a88fc71a117f3bf6d396e4c7ed3b56e"
+      "size_bytes": 1466,
+      "sha256": "8d47e487511dd84a0bb635a612c68d726c21f5d558f95be3a18293685ad25eb9"
     }
   ]
 }

@@ -22,7 +22,7 @@ call "%PYRUN%" -m pytest -q "%CD%\tests"
 if errorlevel 1 goto :fail
 call "%PYRUN%" "%CD%\scripts\check_core_portability.py"
 if errorlevel 1 goto :fail
-call "%PYRUN%" "%CD%\scripts\check_public_surface_neutrality.py"
+call "%PYRUN%" -m scripts.check_public_surface_neutrality
 if errorlevel 1 goto :fail
 
 echo [5/5] Rebuilding Dashboard...

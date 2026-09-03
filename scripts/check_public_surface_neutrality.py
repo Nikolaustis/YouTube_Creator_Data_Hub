@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 VISIBLE_BANNED = ("UgPhone", "LDCloud", "RedFinger", "VSPhone", "Cloud Phone", "cloud phone", "云手机")
 
 

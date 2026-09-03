@@ -16,7 +16,7 @@ call "%PYRUN%" -m creator_hub.portfolio.demo --db "%CD%\data\demo_creator_hub.sq
 if errorlevel 1 goto :fail
 
 echo Validating neutral demo surface...
-call "%PYRUN%" "%CD%\scripts\check_public_surface_neutrality.py"
+call "%PYRUN%" -m scripts.check_public_surface_neutrality
 if errorlevel 1 goto :fail
 
 echo Demo setup complete.
