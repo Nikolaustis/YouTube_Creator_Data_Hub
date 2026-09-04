@@ -117,3 +117,5 @@ def registry_payload(
         "level2": {"objective": OBJECTIVE_LEVEL2, "labels": LABEL_LEVEL2, "constructed": [], "ratio": []},
         "fields": fields,
     }
+
+# V4.2 neutral-surface: field-registry
