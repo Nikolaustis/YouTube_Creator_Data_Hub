@@ -13,7 +13,7 @@ if errorlevel 1 goto :fail
 call "%PYRUN%" -m pip install -r "%CD%\requirements-dev.txt"
 if errorlevel 1 goto :fail
 
-echo [3/5] Applying neutral public-surface migration...
+echo [3/5] Applying neutral public-surface and generic-discovery migration...
 call "%PYRUN%" "%CD%\apply_upgrade.py"
 if errorlevel 1 goto :fail
 
@@ -29,8 +29,8 @@ echo [5/5] Rebuilding Dashboard...
 call "%PYRUN%" "%CD%\hub.py" dashboard
 if errorlevel 1 goto :fail
 
-echo Upgrade complete. Creator Intelligence Hub 4.2.0 is ready.
-echo Default Dashboard surface is domain-neutral.
+echo Upgrade complete. Creator Intelligence Hub 4.4.0 is ready.
+echo Default Dashboard and Creator Discovery surfaces are domain-neutral. Query Pack groups are fully editable per Workspace.
 echo If Dashboard was already running, close it and run start-dashboard.cmd again.
 echo Dashboard: http://127.0.0.1:8765/
 echo Typed API: start-api.cmd ^> http://127.0.0.1:8766/docs

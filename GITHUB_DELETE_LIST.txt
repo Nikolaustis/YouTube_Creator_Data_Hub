@@ -1,0 +1,13 @@
+# Delete these tracked artifacts from the public repository after applying the overlay.
+# The upgrade script cleans local cache copies; GitHub-tracked files require git rm / web deletion.
+__pycache__/
+creator_hub/**/__pycache__/
+scripts/__pycache__/
+*.pyc
+patches/
+
+# V4.3: compatibility-only brand configuration moved under creator_hub/compat/.
+config/brands.json
+
+# Obsolete one-off release artifact.
+docs/RELEASE_NOTES_4.1.0.md

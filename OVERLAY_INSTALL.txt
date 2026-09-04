@@ -1,11 +1,14 @@
-YouTube Creator Intelligence Hub 4.2.0 neutral-surface overlay
+YouTube Creator Intelligence Hub 4.4.0 Workspace Query Pack Editor overlay
 
 1. Back up the current project directory or commit the current Git state.
 2. Extract this ZIP into the repository root and allow file replacement.
-3. Run upgrade.cmd.
-4. The upgrade keeps production Creator/Video facts and Schema 18, but switches the default active Workspace away from compatibility semantics.
-5. Historical compatibility metric configuration is preserved in its compatibility Workspace; generic Workspace entries removed by sanitation receive a one-time backup key.
-6. For the public repository, commit file deletions produced by scripts/repo_hygiene.py.
-7. Run setup-demo.cmd to rebuild and validate the fully synthetic neutral public demo.
+3. Close any running Dashboard process, then run upgrade.cmd.
+4. The upgrade keeps production Creator/Video facts and Schema 18. Generic Workspaces remain the default surface; compatibility semantics stay opt-in.
+5. Creator Discovery remains domain-neutral. Query Expansion is upgraded to Workspace-scoped schema 4 / generic_creator_discovery_v2.
+6. Existing 4.3 Query Pack enable states, edited term lists and active selections are migrated instead of reset. A one-time SQLite backup is stored under query_profile_pre_editor_4_4.
+7. Query Pack groups can be renamed, described, added, duplicated, deleted and reordered. Per-language terms, one-group restore, current-language restore and full system restore are supported.
+8. Normal upgrades do not overwrite an existing schema-4 Workspace Query Profile. config/query_packs.json is only the factory-default catalog.
+9. For the public repository, apply the deletions listed in GITHUB_DELETE_LIST.txt; ZIP overwrite alone cannot delete already tracked files.
+10. Run setup-demo.cmd to rebuild and validate the fully synthetic generic public demo and Query Pack Editor.
 
 The overlay does not include or replace the production SQLite database.

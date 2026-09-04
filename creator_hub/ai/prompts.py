@@ -6,7 +6,7 @@ from typing import Any
 PROMPT_VERSIONS = {
     "creator_brief": "creator-brief-v1",
     "creator_compare": "creator-compare-v1",
-    "query_planner": "query-planner-v9",
+    "query_planner": "query-planner-v10-generic",
     "ask_hub": "ask-hub-plan-v2",
     "weekly_brief": "weekly-brief-v3",
 }
@@ -34,16 +34,18 @@ def query_planner(query: str, language: str, objective: str, query_packs: dict[s
 Plan a high-recall YouTube Creator discovery search for base topic: {query!r}. Language: {language}. User search requirements: {objective}. Query budget: AT MOST {max_queries} executable queries total.
 Return BOTH (1) the final prioritized queries that should actually be executed within that budget and (2) explicit fit_criteria that the local system can apply after discovery. Do not output a large brainstorming list for another layer to re-compose. Do not leave important requirements only in strategy prose.
 Rules:
-- queries: return no more than {max_queries} FINAL executable YouTube search phrases, already ranked by expected information gain. Cover every meaningful operational concept in the requirements when feasible (for example AFK, auto farm, multi-account, multi-instance, alt accounts/alts, multi-client, overnight, farm while sleeping, 24/7). Avoid duplicate wording such as repeating the base topic twice.
+- queries: return no more than {max_queries} FINAL executable YouTube search phrases, already ranked by expected information gain. Use the user's topic plus domain-neutral intent patterns such as tutorial, review, comparison, use case, setup, update, discussion, or other requirements explicitly stated by the user. Avoid duplicate wording or repeating the base topic twice.
 - fit_criteria.search_concepts: short concepts that MUST receive query coverage.
-- fit_criteria.preferred_terms: title-level evidence terms that should appear in the best hit or recent uploads for a candidate to satisfy the user's stated content/use-case requirement. Do not treat them as proof of cloud-phone usage; they are only Creator-fit evidence.
-- fit_criteria.continuity_terms: terms used to measure whether the creator repeatedly produces the desired kind of content. The local system first establishes channel-level base-topic context; individual continuity uploads do NOT need to repeat the full base-topic name in every title.
+- fit_criteria.preferred_terms: title-level evidence terms that should appear in the best hit or recent uploads for a candidate to satisfy the user's stated content/use-case requirement. Treat them only as Creator-fit evidence.
+- fit_criteria.continuity_terms: terms used to measure whether the creator repeatedly produces the desired kind of content. The local system may establish channel-level base-topic context first; individual continuity uploads do NOT need to repeat the full base-topic name in every title.
 - fit_criteria.exclude_terms: only explicit negative requirements; otherwise return [].
 - subscriber_min/subscriber_max: use numeric hard constraints only when the user expresses a size requirement. If the wording is vague, use null; the local system may apply a documented default heuristic.
 - require_topic_match should normally be true so unrelated search noise is filtered.
-- prefer_long_term should be true when the user asks for long-term/repeated/ongoing production. The local system will treat that as a continuity gate, not merely a bonus.
-- For Creator sourcing, official cloud-phone brand accounts, official game/developer channels, and channels primarily focused on cheats/scripts/exploits are normally unsuitable and will be removed by deterministic brand-safety rules unless the user explicitly asks to include them.
-The selected query language is also treated by the local system as the desired dominant Creator content language when sufficient recent-title evidence exists. The local system will immediately execute the queries through YouTube API, then sample recent uploads and apply the fit criteria. Do not claim you executed anything yourself. Use Query Pack vocabulary as guidance, not as a requirement.""" + _payload("QUERY_PACKS", query_packs)
+- prefer_long_term should be true when the user asks for long-term/repeated/ongoing production. Treat it as a continuity requirement rather than merely a bonus.
+- Do not assume a specific industry, product category, entertainment category, customer, brand, competitor set, or monetization model unless the user's request or active Workspace explicitly supplies it.
+- When sourcing independent Creators, clearly official organization/product channels may be poor outreach candidates, but do not invent exclusion rules that are not represented in the supplied requirements or Workspace configuration.
+The selected query language is also treated by the local system as the desired dominant Creator content language when sufficient recent-title evidence exists. The local system will execute the queries through YouTube search and may sample recent uploads before applying fit criteria. Do not claim you executed anything yourself. Use Query Pack vocabulary as optional guidance, not as a requirement.""" + _payload("QUERY_PACKS", query_packs)
+
 
 def ask_hub(question: str, field_catalog: dict[str, Any]) -> str:
     return BASE_RULES + f"\nTranslate the user's question into a SAFE, READ-ONLY Creator query plan using only fields/operators in FIELD_CATALOG. Do not answer from memory. The local database will execute your plan. Set result_limit to null unless the user explicitly asks for a Top N / exact maximum number of results. Dashboard pagination is separate and is always handled locally. Question: {question}" + _payload("FIELD_CATALOG", field_catalog)

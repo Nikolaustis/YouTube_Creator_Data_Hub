@@ -8,14 +8,18 @@ call "%PYRUN%" -m pip install -r "%CD%\requirements.txt"
 if errorlevel 1 goto :fail
 
 echo Applying source-only neutral public-surface migration...
-call "%PYRUN%" "%CD%\scripts\neutralize_public_surface.py" --source-only
+call "%PYRUN%" -m scripts.neutralize_public_surface --source-only
+if errorlevel 1 goto :fail
+call "%PYRUN%" -m scripts.neutralize_discovery_surface --source-only
+if errorlevel 1 goto :fail
+call "%PYRUN%" -m scripts.query_pack_editor --source-only
 if errorlevel 1 goto :fail
 
 echo Creating deterministic synthetic demo dataset...
 call "%PYRUN%" -m creator_hub.portfolio.demo --db "%CD%\data\demo_creator_hub.sqlite" --creators 100 --videos 3000 --output "%CD%\output\demo-dashboard" --build-dashboard
 if errorlevel 1 goto :fail
 
-echo Validating neutral demo surface...
+echo Validating neutral demo surface, generic Creator Discovery and editable Query Packs...
 call "%PYRUN%" -m scripts.check_public_surface_neutrality
 if errorlevel 1 goto :fail
 

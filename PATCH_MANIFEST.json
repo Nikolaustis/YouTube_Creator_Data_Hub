@@ -1,31 +1,40 @@
 {
-  "name": "youtube-creator-intelligence-hub-neutral-surface-overlay",
-  "version": "4.2.0",
+  "name": "youtube-creator-intelligence-hub-workspace-query-pack-editor-overlay",
+  "version": "4.4.0",
   "schema_version": 18,
   "database_included": false,
   "upgrade_compatible": true,
+  "migration_strategy": "idempotent V4.2/V4.3 neutralization followed by Workspace-scoped Query Pack schema-4 migration; user edits retained",
   "behavior_changes": [
-    "generic workspaces do not inherit unscoped historical metric configuration",
-    "browser metric state is namespaced by workspace",
-    "compatibility templates are hidden and never auto-activated",
-    "dashboard default examples, relationships, result columns and detail sorting are domain-neutral",
-    "synthetic demo includes a public-surface neutrality gate",
-    "neutrality checker works from Windows batch/module entrypoints and direct file execution"
+    "Query Expansion groups are fully editable Workspace-scoped strategy objects",
+    "group name and description can be edited in place",
+    "groups can be added, duplicated, deleted and reordered",
+    "per-language term lists and active selections remain independently editable",
+    "built-in groups support one-group restore, current-language restore and full catalog restore",
+    "browser Query Pack state moves to Workspace-scoped v4 storage",
+    "SQLite query_profile moves to schema 4 / generic_creator_discovery_v2",
+    "V4.3 enable states, term edits and active selections are migrated instead of reset",
+    "schema-4 user-defined groups are preserved by normal upgrades"
   ],
   "runtime_modified_files": [
     "creator_hub/dashboard.py",
-    "creator_hub/metric_workspace.py",
-    "creator_hub/static/metrics_workspace.js",
-    "creator_hub/workspace.py",
-    "config/workspace_templates.json"
+    "creator_hub/static/discovery.js",
+    "config/query_packs.json"
   ],
-  "delete_after_apply": [
-    "__pycache__/",
-    "creator_hub/**/__pycache__/",
-    "scripts/__pycache__/",
-    "*.pyc",
-    "patches/",
-    "docs/RELEASE_NOTES_4.1.0.md"
+  "database_migration": [
+    "Schema remains 18",
+    "production Creator/Video/Snapshot/Discovery facts are not changed",
+    "pre-4.4 generic query_profile is backed up once to query_profile_pre_editor_4_4",
+    "V4.3 Query Pack edits are retained during conversion",
+    "existing V4.4 schema-4 profiles are left unchanged"
+  ],
+  "validation": [
+    "all overlay Python files compile",
+    "all JSON/JSONL parse",
+    "Windows CMD entry points are ASCII CRLF",
+    "focused Query Pack migration tests pass",
+    "V3-to-V4 JavaScript state migration harness passes under Node",
+    "generated Query Pack editor JavaScript passes node --check"
   ],
   "files": [
     {
@@ -45,8 +54,8 @@
     },
     {
       "path": ".github/workflows/ci.yml",
-      "size_bytes": 1218,
-      "sha256": "fbedd3cb17eb29c922e569c2ac1c02777f212c103d2900034900829af731e0fd"
+      "size_bytes": 1287,
+      "sha256": "f5f7838c0b63f16cefdbc142916b57399203c959b5bbcbf8f90a75f352db09aa"
     },
     {
       "path": ".gitignore",
@@ -60,18 +69,18 @@
     },
     {
       "path": "GITHUB_DELETE_LIST.txt",
-      "size_bytes": 287,
-      "sha256": "6d30847df6c93f08fda9ad21621b92b0f890d0e1d9861e9fe0fa804f6a6317ce"
+      "size_bytes": 431,
+      "sha256": "388f14c9760b92444ce1c8b320ec77875c72a93d095ae903418feb106e2b1b72"
     },
     {
       "path": "OVERLAY_INSTALL.txt",
-      "size_bytes": 797,
-      "sha256": "18f2a72fa4ecd228735071835ccab688c3162c75c664a8734ee15b4c2ccbc750"
+      "size_bytes": 1414,
+      "sha256": "918687fe0ad693c65d22f21bc323357f3f421c126cdb071a9d9bd2ca78f92265"
     },
     {
       "path": "README.md",
-      "size_bytes": 5974,
-      "sha256": "c40cc56d096051761246556af81343450ab912a050ce035eebc1baccab48a7b4"
+      "size_bytes": 6763,
+      "sha256": "e3fbb3b99b9999fd709159765bfcf2a06bd67e018f319aef8eea26674d95e00a"
     },
     {
       "path": "SECURITY.md",
@@ -80,28 +89,43 @@
     },
     {
       "path": "SKILL.md",
-      "size_bytes": 3547,
-      "sha256": "f6f1f4d925a52150f1d5e58a2fb0ad2f2f7f0f3e71551f9d843aa203256f4af5"
+      "size_bytes": 4682,
+      "sha256": "fda5125c7aa0abe349f200ab0938a4ea68967df68f731becfdba8fce02ba69ab"
     },
     {
       "path": "VERSION",
       "size_bytes": 6,
-      "sha256": "8fb33dadbe981cf5847df269c10c2a3fe107f2b269d5ccb6db37d1f61ffc3bba"
+      "sha256": "d4e4d4e812e1dafc4e760f5ee12c48ef76f8af41d27cbf3bf2ff065505b9cfe6"
     },
     {
       "path": "apply_upgrade.py",
-      "size_bytes": 3108,
-      "sha256": "60ba309d806398257e6530cb8860dab7bf1f9a76660fed4896acabaa6c0b43ad"
+      "size_bytes": 4551,
+      "sha256": "3899692a54d8b981821572c159293454229cac7f81704fc307e4419599d847f0"
+    },
+    {
+      "path": "config/query_packs.json",
+      "size_bytes": 8350,
+      "sha256": "448616e801bd0f279eecaa86a3a26947e2eb82b04078ce16fd8c4d84518bfba2"
+    },
+    {
+      "path": "config/workspace_templates.json",
+      "size_bytes": 3978,
+      "sha256": "b752485b9c5f034f0ec6c3efdb5a797883963fb5c18cbfb53f9f5ce4b4afbdb7"
     },
     {
       "path": "create-demo.cmd",
-      "size_bytes": 372,
-      "sha256": "4956f4dc465406648babd0d41b4ba92479928248afbbaa45c6c0643168544faf"
+      "size_bytes": 550,
+      "sha256": "27b189b4c1d94521905f7f61066648a064f679bad68b31172a78ed1af11a4e54"
     },
     {
       "path": "creator_hub/__init__.py",
       "size_bytes": 22,
-      "sha256": "a54e7a6438c20e751b20d7b7f6162e2971f2f5423d4dfe318d6827c419711039"
+      "sha256": "64c115b2b0c214069645cc7270f15303979770d49d9f198bb541d3bedfffe138"
+    },
+    {
+      "path": "creator_hub/ai/prompts.py",
+      "size_bytes": 5694,
+      "sha256": "dc17765c283c0b43a8bf2e758224a066824f9aad3594a52ec7f1e095c52b02b7"
     },
     {
       "path": "creator_hub/ai/workspace_tools.py",
@@ -135,8 +159,18 @@
     },
     {
       "path": "creator_hub/compat/cloud_phone.py",
-      "size_bytes": 885,
-      "sha256": "50d4e174b964d82e09343d2a1bea4d513251fe075e159a37bc5ed890044c8071"
+      "size_bytes": 1694,
+      "sha256": "f39219f7894dca9300e69ae3bc63ddd8459167f94d6686fe405587391bf67740"
+    },
+    {
+      "path": "creator_hub/compat/cloud_phone_brands.json",
+      "size_bytes": 2876,
+      "sha256": "c359e2612781d0a2f39b41dcb762adcc720e0298904cf52e939a55d6b38ea786"
+    },
+    {
+      "path": "creator_hub/compat/cloud_phone_workspace.json",
+      "size_bytes": 2504,
+      "sha256": "93b43fcf7a3e47be24964ceae1b8ed08c529df3b41dcb65a5d76f204e4eb9815"
     },
     {
       "path": "creator_hub/field_registry.py",
@@ -150,8 +184,8 @@
     },
     {
       "path": "creator_hub/monitoring.py",
-      "size_bytes": 3389,
-      "sha256": "a95c99796e72c402ebccf8bc4687ac6c63b112e8c6149394c87d427de7c257c0"
+      "size_bytes": 2878,
+      "sha256": "c312e1cb38e48b533abc816174bf8af4a10e958c0a368e6fceef11b9ff865306"
     },
     {
       "path": "creator_hub/portfolio/__init__.py",
@@ -177,6 +211,11 @@
       "path": "creator_hub/static/creator_detail.js",
       "size_bytes": 5055,
       "sha256": "82154c0fa88140e3f5ea809d48d402991065dca734c73f39f878cc062fcad7d0"
+    },
+    {
+      "path": "docs/AI.md",
+      "size_bytes": 3209,
+      "sha256": "9647f82fb81a0869cfa4e7fd067aeb8269ef399d0a3cf13ad80273e9f8160dd6"
     },
     {
       "path": "docs/AI_EVALUATION.md",
@@ -219,9 +258,24 @@
       "sha256": "dab7921a675d488439a1f3c4666f53b742505c7aefa944030b287d910308c02e"
     },
     {
+      "path": "docs/QUERY_EXPANSION.md",
+      "size_bytes": 2064,
+      "sha256": "7dcb8ee886712e2e688c027e21ccbf20943543b817bacbdf1a8802dd701f91be"
+    },
+    {
       "path": "docs/RELEASE_NOTES_4.2.0.md",
       "size_bytes": 1340,
       "sha256": "1f0982859e8c05e9471880f7120d8185d0c4806d3adcee38ce16bcb2394bc2b3"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_4.3.0.md",
+      "size_bytes": 1708,
+      "sha256": "ea92b21b185939722065fc213505c58f3a23c1108206f9f1a876e82e730254c5"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_4.4.0.md",
+      "size_bytes": 1454,
+      "sha256": "11c4f79ca85b0859b251b3422e50aa3e06aa3e6418f672b4d1fb46c8cba59486"
     },
     {
       "path": "docs/SECONDARY_METRICS.md",
@@ -265,18 +319,28 @@
     },
     {
       "path": "scripts/check_core_portability.py",
-      "size_bytes": 1674,
-      "sha256": "ae2dbce2df29d2b25c250bc9cd327f80dae9e5279c398989902988095185c19c"
+      "size_bytes": 1770,
+      "sha256": "a6b418fd9bcef2b7fec64dbdcfbedb790b2854e5b0d74ebcfee932d5d5460864"
     },
     {
       "path": "scripts/check_public_surface_neutrality.py",
-      "size_bytes": 3427,
-      "sha256": "a8c051821842029ae54e919b08c6e46af2ea7bd99c2dca82703d8f201ca361e1"
+      "size_bytes": 6761,
+      "sha256": "5aad80126a80505ea01a1d83fe988a90aed15374c238f99f4719e94bf2f4ab9b"
+    },
+    {
+      "path": "scripts/neutralize_discovery_surface.py",
+      "size_bytes": 15002,
+      "sha256": "0e886412ff4053d4fa710525cf58368f085b4ca5e4f2f9e40fdbb3b615d419c1"
     },
     {
       "path": "scripts/neutralize_public_surface.py",
-      "size_bytes": 33948,
-      "sha256": "517900ed0fe95f8de94429eaadaf2fd56cfb6113b06aa01a2c0673fb7386f004"
+      "size_bytes": 34242,
+      "sha256": "ccc2799a03a50e1dfedc7cfb4bff38c8aa3b8331bbb34685824f00d4daed063c"
+    },
+    {
+      "path": "scripts/query_pack_editor.py",
+      "size_bytes": 28308,
+      "sha256": "c45b1c1b81da71154d37b9faa59a32603e8bf1e5c8d94b26c37a8600db34b975"
     },
     {
       "path": "scripts/repo_hygiene.py",
@@ -285,8 +349,8 @@
     },
     {
       "path": "setup-demo.cmd",
-      "size_bytes": 915,
-      "sha256": "1e5a29d08096bc9fcae2b4656b5aab8be7310a7d410eed90be48e62cec4559bd"
+      "size_bytes": 1145,
+      "sha256": "2ecf4aeb7efad8e65575e86752a1a944cfa143e016026edab714f221b1505306"
     },
     {
       "path": "start-api.cmd",
@@ -319,6 +383,11 @@
       "sha256": "19e1fc02a4007a2b20cecb8cb3ba4cfc82c449e341f89633d2b330ac9eeb6b03"
     },
     {
+      "path": "tests/test_generic_discovery_migration.py",
+      "size_bytes": 1203,
+      "sha256": "853e82316e09c87169a77b089fe6ed705052b0f745a13149dc814ff892ae3c37"
+    },
+    {
       "path": "tests/test_jobs_durability.py",
       "size_bytes": 2923,
       "sha256": "aae7322e1ca51f6ac10807382127485c6a7ff11bc987901db2c93f06d1b91cce"
@@ -334,9 +403,14 @@
       "sha256": "205b547fbfa5391c18d0e33f1d99ddbfe7ccec00e51849a7b3501248cf5a434d"
     },
     {
+      "path": "tests/test_query_pack_editor.py",
+      "size_bytes": 2598,
+      "sha256": "01568f809c4eb96b82661ad949797b6a6d0dd85efa5350e985f079a008f8c52b"
+    },
+    {
       "path": "upgrade.cmd",
-      "size_bytes": 1466,
-      "sha256": "8d47e487511dd84a0bb635a612c68d726c21f5d558f95be3a18293685ad25eb9"
+      "size_bytes": 1564,
+      "sha256": "0c7853f4f9858867c0521f1fec8126888400c875fc3fe568ded550d9f674dbb4"
     }
   ]
 }

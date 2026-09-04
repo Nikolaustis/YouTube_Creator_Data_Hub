@@ -68,29 +68,12 @@ def suspected_inactive_relationship(
     return (current - latest).total_seconds() >= float(inactive_days) * 86400.0
 
 
-def suspected_inactive_partner(
-    settings: dict[str, Any],
-    *,
-    monitoring_enabled: bool | int,
-    priority: str | None,
-    last_synced_at: str | None,
-    ugphone_video_count: int | float | None,
-    latest_ugphone_upload: str | None,
-    inactive_days: float = 30.0,
-    now: datetime | None = None,
-) -> bool:
-    """Backward-compatible cloud-phone alias.
 
-    New Core code should call :func:`suspected_inactive_relationship`. The legacy
-    signature remains so existing Dashboard and saved metric behavior do not break.
-    """
-    return suspected_inactive_relationship(
-        settings,
-        monitoring_enabled=monitoring_enabled,
-        priority=priority,
-        last_synced_at=last_synced_at,
-        relationship_evidence_count=ugphone_video_count,
-        latest_relationship_evidence_at=latest_ugphone_upload,
-        inactive_days=inactive_days,
-        now=now,
-    )
+def __getattr__(name: str):
+    # PEP 562 compatibility bridge: historical call sites can keep importing the old
+    # helper name, while domain-specific argument names live only in creator_hub.compat.
+    if name == "suspected_inactive_partner":
+        from .compat.cloud_phone import suspected_inactive_partner
+
+        return suspected_inactive_partner
+    raise AttributeError(name)

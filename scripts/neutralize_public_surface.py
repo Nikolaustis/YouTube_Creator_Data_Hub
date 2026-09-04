@@ -240,7 +240,12 @@ def patch_templates(path: Path) -> None:
             template["visibility"] = "compatibility"
             changed = True
     if not changed:
-        raise RuntimeError("cloud compatibility template not found")
+        # V4.3+ relocates the compatibility template under creator_hub/compat so the
+        # public top-level template catalog remains domain-neutral.
+        compat_path = ROOT / "creator_hub" / "compat" / "cloud_phone_workspace.json"
+        if not compat_path.exists():
+            raise RuntimeError("cloud compatibility template not found")
+        return
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

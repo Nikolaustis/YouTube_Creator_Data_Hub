@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "templates": [
+    {
+      "id": "cloud_phone_growth",
+      "name": "Cloud Phone Growth",
+      "name_zh": "云手机增长",
+      "description_zh": "V3.x 云手机业务兼容 Workspace。仅用于显式兼容迁移，不进入默认模板目录。",
+      "visibility": "compatibility",
+      "compatibility_profile": "cloud_phone_v1",
+      "primary_brand_key": "ugphone",
+      "brands": [
+        {"key": "ugphone", "name": "UgPhone", "role": "primary"},
+        {"key": "ldcloud", "name": "LDCloud", "role": "competitor"},
+        {"key": "redfinger", "name": "RedFinger", "role": "competitor"},
+        {"key": "vsphone", "name": "VSPhone", "role": "competitor"}
+      ],
+      "brand_groups": [
+        {"key": "own_brands", "name": "自有品牌", "members": ["ugphone"]},
+        {"key": "competitors", "name": "竞品", "members": ["ldcloud", "redfinger", "vsphone"]}
+      ],
+      "taxonomies": [{
+        "key": "content_relationship",
+        "name": "品牌内容关系",
+        "entity_type": "video",
+        "multi_select": false,
+        "labels": [
+          {"key": "own_brand", "name": "自有品牌内容"},
+          {"key": "competitor", "name": "竞品内容"},
+          {"key": "multi_brand", "name": "多品牌内容"},
+          {"key": "organic", "name": "日常 / 自然内容"},
+          {"key": "other_brand", "name": "其他同类品牌内容"},
+          {"key": "review", "name": "待复核"}
+        ]
+      }],
+      "creator_relationships": [
+        {"key": "partner", "name": "合作"},
+        {"key": "former_partner", "name": "历史合作"},
+        {"key": "prospect", "name": "潜在合作"}
+      ],
+      "business_metrics": [
+        {"key": "gmv", "name": "GMV", "value_type": "currency", "unit": "currency", "currency": "USD", "aggregation": "sum"},
+        {"key": "new_users", "name": "New Users", "value_type": "number", "unit": "users", "aggregation": "sum"}
+      ],
+      "discovery_profiles": [{
+        "key": "cloud_phone_growth",
+        "name": "Cloud Phone Growth",
+        "profile": {
+          "positive_terms": ["cloud phone", "cloudphone", "android cloud", "云手机", "AFK", "auto farm", "multi-instance", "24/7"],
+          "exclude_official_channels": true
+        }
+      }],
+      "presets": [
+        {"type": "rule", "key": "high_competitor_traffic", "name": "高流量竞品博主"},
+        {"type": "rule", "key": "high_partner_traffic", "name": "高流量合作博主"}
+      ]
+    }
+  ]
+}

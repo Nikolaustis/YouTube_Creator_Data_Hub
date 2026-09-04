@@ -8,7 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STRICT_TARGETS = [
     ROOT / "creator_hub" / "api",
     ROOT / "creator_hub" / "portfolio",
+    ROOT / "creator_hub" / "field_registry.py",
     ROOT / "creator_hub" / "ai" / "workspace_tools.py",
+    ROOT / "creator_hub" / "ai" / "prompts.py",
 ]
 BANNED = re.compile(r"\b(ugphone|ldcloud|redfinger|vsphone|cloud[ _-]?phone)\b", re.I)
 LEGACY_BOUNDARY = [
