@@ -20,24 +20,57 @@
       "description_zh": "适合品牌合作、达人关系管理、内容表现和品牌安全分析。",
       "brands": [],
       "brand_groups": [
-        {"key": "own_brands", "name": "自有品牌"},
-        {"key": "competitors", "name": "竞品"},
-        {"key": "partners", "name": "合作品牌"}
+        {
+          "key": "own_brands",
+          "name": "自有品牌"
+        },
+        {
+          "key": "competitors",
+          "name": "竞品"
+        },
+        {
+          "key": "partners",
+          "name": "合作品牌"
+        }
       ],
-      "taxonomies": [{
-        "key": "commercial_intent",
-        "name": "商业意图",
-        "entity_type": "video",
-        "multi_select": false,
-        "labels": [
-          {"key": "sponsored", "name": "商业合作"},
-          {"key": "organic", "name": "自然内容"},
-          {"key": "review", "name": "待复核"}
-        ]
-      }],
+      "taxonomies": [
+        {
+          "key": "commercial_intent",
+          "name": "商业意图",
+          "entity_type": "video",
+          "multi_select": false,
+          "labels": [
+            {
+              "key": "sponsored",
+              "name": "商业合作"
+            },
+            {
+              "key": "organic",
+              "name": "自然内容"
+            },
+            {
+              "key": "review",
+              "name": "待复核"
+            }
+          ]
+        }
+      ],
       "business_metrics": [
-        {"key": "revenue", "name": "Revenue", "value_type": "currency", "unit": "currency", "currency": "USD", "aggregation": "sum"},
-        {"key": "orders", "name": "Orders", "value_type": "number", "unit": "orders", "aggregation": "sum"}
+        {
+          "key": "revenue",
+          "name": "Revenue",
+          "value_type": "currency",
+          "unit": "currency",
+          "currency": "USD",
+          "aggregation": "sum"
+        },
+        {
+          "key": "orders",
+          "name": "Orders",
+          "value_type": "number",
+          "unit": "orders",
+          "aggregation": "sum"
+        }
       ],
       "discovery_profiles": [],
       "presets": []
@@ -49,26 +82,71 @@
       "description_zh": "适合 GMV、订单、拉新、安装、转化等效果型 Creator 项目。",
       "brands": [],
       "brand_groups": [
-        {"key": "own_brands", "name": "自有品牌"},
-        {"key": "competitors", "name": "竞品"}
+        {
+          "key": "own_brands",
+          "name": "自有品牌"
+        },
+        {
+          "key": "competitors",
+          "name": "竞品"
+        }
       ],
-      "taxonomies": [{
-        "key": "commercial_intent",
-        "name": "商业意图",
-        "entity_type": "video",
-        "multi_select": false,
-        "labels": [
-          {"key": "conversion", "name": "转化导向"},
-          {"key": "awareness", "name": "品牌曝光"},
-          {"key": "organic", "name": "自然内容"},
-          {"key": "review", "name": "待复核"}
-        ]
-      }],
+      "taxonomies": [
+        {
+          "key": "commercial_intent",
+          "name": "商业意图",
+          "entity_type": "video",
+          "multi_select": false,
+          "labels": [
+            {
+              "key": "conversion",
+              "name": "转化导向"
+            },
+            {
+              "key": "awareness",
+              "name": "品牌曝光"
+            },
+            {
+              "key": "organic",
+              "name": "自然内容"
+            },
+            {
+              "key": "review",
+              "name": "待复核"
+            }
+          ]
+        }
+      ],
       "business_metrics": [
-        {"key": "gmv", "name": "GMV", "value_type": "currency", "unit": "currency", "currency": "USD", "aggregation": "sum"},
-        {"key": "new_users", "name": "New Users", "value_type": "number", "unit": "users", "aggregation": "sum"},
-        {"key": "orders", "name": "Orders", "value_type": "number", "unit": "orders", "aggregation": "sum"},
-        {"key": "installs", "name": "Installs", "value_type": "number", "unit": "installs", "aggregation": "sum"}
+        {
+          "key": "gmv",
+          "name": "GMV",
+          "value_type": "currency",
+          "unit": "currency",
+          "currency": "USD",
+          "aggregation": "sum"
+        },
+        {
+          "key": "new_users",
+          "name": "New Users",
+          "value_type": "number",
+          "unit": "users",
+          "aggregation": "sum"
+        },
+        {
+          "key": "orders",
+          "name": "Orders",
+          "value_type": "number",
+          "unit": "orders",
+          "aggregation": "sum"
+        },
+        {
+          "key": "installs",
+          "name": "Installs",
+          "value_type": "number",
+          "unit": "installs",
+          "aggregation": "sum"
+        }
       ],
       "discovery_profiles": [],
       "presets": []
@@ -80,28 +158,52 @@
       "description_zh": "适合通用 Creator 发现、内容类型分类和持续创作判断，不预设具体行业或内容品类。",
       "brands": [],
       "brand_groups": [],
-      "taxonomies": [{
-        "key": "content_type",
-        "name": "内容类型",
-        "entity_type": "video",
-        "multi_select": true,
-        "labels": [
-          {"key": "tutorial", "name": "教程 / 讲解"},
-          {"key": "review", "name": "评测 / 比较"},
-          {"key": "news", "name": "动态 / 资讯"},
-          {"key": "livestream", "name": "直播"},
-          {"key": "shorts", "name": "Shorts"}
-        ]
-      }],
-      "business_metrics": [],
-      "discovery_profiles": [{
-        "key": "creator_general",
-        "name": "Creator General",
-        "profile": {
-          "positive_terms": ["guide", "tutorial", "review", "how to"],
-          "exclude_official_channels": true
+      "taxonomies": [
+        {
+          "key": "content_type",
+          "name": "内容类型",
+          "entity_type": "video",
+          "multi_select": true,
+          "labels": [
+            {
+              "key": "tutorial",
+              "name": "教程 / 讲解"
+            },
+            {
+              "key": "review",
+              "name": "评测 / 比较"
+            },
+            {
+              "key": "news",
+              "name": "动态 / 资讯"
+            },
+            {
+              "key": "livestream",
+              "name": "直播"
+            },
+            {
+              "key": "shorts",
+              "name": "Shorts"
+            }
+          ]
         }
-      }],
+      ],
+      "business_metrics": [],
+      "discovery_profiles": [
+        {
+          "key": "creator_general",
+          "name": "Creator General",
+          "profile": {
+            "positive_terms": [
+              "guide",
+              "tutorial",
+              "review",
+              "how to"
+            ],
+            "exclude_official_channels": true
+          }
+        }
+      ],
       "presets": []
     }
   ]
