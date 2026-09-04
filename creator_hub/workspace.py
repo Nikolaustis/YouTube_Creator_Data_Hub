@@ -19,7 +19,7 @@ WORKSPACE_BODY = r"""
     <div class="sub">Creator / Video 基础事实全局共享；品牌、标签、关系、商业指标、规则与发现策略按 Workspace 隔离。</div>
   </div>
 </div>
-<div class="note"><b>V4 核心原则：</b>Core 不再把特定品牌、竞品、行业或商业指标写死。特定业务知识由 Workspace / Template 提供。原有云手机能力被迁移为 <b>Cloud Phone Growth</b> 兼容 Workspace。</div>
+<div class="note"><b>Workspace 原则：</b>Core 只提供通用 Creator / Video 事实与 Workspace primitives。品牌、行业、关系、商业指标和分类语义均由当前 Workspace 配置提供；兼容 Pack 默认隐藏，只有显式启用时才进入工作区。</div>
 
 <div class="grid two section anchor-section" id="workspace-overview">
   <div class="card">
@@ -81,11 +81,20 @@ class WorkspaceService:
         self.db_path = str(db_path)
         self.templates_path = Path(templates_path) if templates_path else DEFAULT_TEMPLATES
 
+    def _all_templates(self) -> list[dict[str, Any]]:
+        public = list(_templates(self.templates_path).get("templates") or [])
+        compat_path = Path(__file__).resolve().parent / "compat" / "cloud_phone_workspace.json"
+        if compat_path.exists():
+            public.extend(list(_templates(compat_path).get("templates") or []))
+        return public
+
     def templates(self) -> list[dict[str, Any]]:
-        return list(_templates(self.templates_path).get("templates") or [])
+        """Public template catalog. Compatibility packs are opt-in and hidden by default."""
+        return [t for t in self._all_templates() if str(t.get("visibility") or "public") != "compatibility"]
 
     def _template(self, template_id: str) -> dict[str, Any]:
-        for t in self.templates():
+        # Internal/explicit installs may still resolve hidden compatibility templates.
+        for t in self._all_templates():
             if str(t.get("id")) == str(template_id):
                 return t
         raise ValueError(f"workspace template not found: {template_id}")
@@ -333,10 +342,10 @@ class WorkspaceService:
             cloud = self.install_template("cloud_phone_growth", name="Cloud Phone Growth", workspace_id="cloud_phone_growth")
         active = self.active_id()
         if not active:
-            active = (cloud or general).get("id")
+            # Public/default surface is always generic. Legacy evidence may create a hidden
+            # compatibility Workspace, but it must never become active automatically.
+            active = general.get("id")
             self.set_active(str(active))
-        elif legacy_score and active == "general" and cloud:
-            self.set_active(str(cloud.get("id")))
 
         if cloud:
             self._migrate_legacy_cloud(str(cloud.get("id")))
@@ -460,3 +469,7 @@ def active_workspace_context(conn) -> dict[str, Any]:
     profiles=[dict(r) for r in conn.execute("SELECT id,key,name,enabled,profile_json FROM discovery_profiles WHERE workspace_id=? ORDER BY name",(wid,)).fetchall()]
     for p in profiles:p["profile"]=json_load(p.pop("profile_json",None),{})
     return {"workspace":ws,"brands":brands,"brand_groups":groups,"taxonomies":schemes,"business_metrics":metrics,"discovery_profiles":profiles}
+
+# V4.2 neutral-surface: workspace
+
+# V4.3 generic-discovery: workspace-loader

@@ -25,12 +25,12 @@ CREATOR_FACT_FIELDS={
     "channel_view_count":"频道累计播放量",
     "channel_video_count":"YouTube视频总数",
     "stored_videos":"本地已存视频数",
-    "ugphone_video_count":"UgPhone视频数量",
+    "ugphone_video_count":"主品牌视频数量",
     "competitor_video_count":"竞品视频数量",
     "daily_video_count":"日常视频数量",
-    "ldcloud_video_count":"LDCloud视频数量",
-    "redfinger_video_count":"RedFinger视频数量",
-    "vsphone_video_count":"VSPhone视频数量",
+    "ldcloud_video_count":"竞品品牌 A视频数量",
+    "redfinger_video_count":"竞品品牌 B视频数量",
+    "vsphone_video_count":"竞品品牌 C视频数量",
     "gmv_total":"GMV（商业数据）",
     "new_users_total":"拉新（商业数据）",
 }
@@ -39,10 +39,10 @@ CREATOR_FACT_FIELDS={
 CREATOR_LABELS={
     "partnered_ugphone":"合作过博主",
     "unpartnered_ugphone":"未合作博主",
-    "ldcloud_creator":"LDCloud合作博主",
-    "redfinger_creator":"RedFinger合作博主",
-    "vsphone_creator":"VSPhone合作博主",
-    "ugphone_and_competitor":"UgPhone与竞品均合作博主",
+    "ldcloud_creator":"竞品品牌 A合作博主",
+    "redfinger_creator":"竞品品牌 B合作博主",
+    "vsphone_creator":"竞品品牌 C合作博主",
+    "ugphone_and_competitor":"主品牌与竞品均合作博主",
     "suspected_inactive_partner":"疑似不再合作",
 }
 
@@ -65,27 +65,28 @@ GENERIC_CREATOR_FACT_FIELDS={
 FIELD_GROUPS=[]  # canonical hierarchy lives in field_registry.py
 
 def field_registry_payload()->dict[str,Any]:
-    cfg=load_metric_config(None) if False else {"metrics":[]}
-    return registry_payload(CREATOR_FACT_FIELDS,CREATOR_LABELS,VIDEO_FACT_FIELDS,[])
+    # The static/default registry is domain-neutral. Workspace-specific fields are supplied
+    # by build_metric_base() at runtime.
+    return registry_payload(GENERIC_CREATOR_FACT_FIELDS,{},VIDEO_FACT_FIELDS,[])
 
 VIDEO_FILTERS={
-    "role:ugphone":"UgPhone视频",
+    "role:ugphone":"主品牌视频",
     "role:competitor":"竞品视频",
     "role:daily":"日常视频",
-    "role:multi_brand":"多品牌云手机视频",
-    "role:other_cloud_phone":"其他云手机视频",
-    "brand:ldcloud":"LDCloud视频",
-    "brand:redfinger":"RedFinger视频",
-    "brand:vsphone":"VSPhone视频",
-    "brand:ugphone":"UgPhone品牌视频",
+    "role:multi_brand":"多品牌行业产品视频",
+    "role:other_cloud_phone":"其他行业产品视频",
+    "brand:ldcloud":"竞品品牌 A视频",
+    "brand:redfinger":"竞品品牌 B视频",
+    "brand:vsphone":"竞品品牌 C视频",
+    "brand:ugphone":"主品牌品牌视频",
 }
 
 METRICS_BODY=r'''
 <div class="title"><div><h1>二次指标</h1><div class="sub">博主级事实、博主标签与视频级事实严格分层；视频数据只有经过聚合后才成为博主级构建指标。</div></div><div class="inline"><button class="btn" id="exportCfg">导出配置</button><label class="btn">导入配置<input id="importCfg" type="file" accept="application/json" style="display:none"></label><button class="btn danger" id="resetCfg">清空全部指标</button></div></div>
 <div class="note"><b>指标层级：</b>【博主客观数据】和【博主标签】直接用于筛选/规则，不进入聚合器；【指标构建器】只对视频客观数据执行 Count、Sum、Average、Median、Max、Min，输出每位博主一个【构建指标】；【比值指标】只对博主数值型客观数据或已构建指标做 A ÷ B。</div>
 <div class="section metric-builder"><div>
-  <div class="builder-panel anchor-section" id="metrics-builder"><h2>指标构建器</h2><input type="hidden" id="metricEditId"><div class="form-row"><label>指标名称</label><input id="metricName" placeholder="例如：近90天UgPhone视频播放中位数"></div><div class="form-row"><label>指标分组</label><input id="metricGroup" placeholder="例如：流量指标 / 合作判断"></div><div class="form-row top"><label>业务说明</label><textarea id="metricDescription" rows="2" placeholder="说明该指标的业务含义、使用场景或口径"></textarea></div><div class="form-row"><label>输出类型</label><select id="metricOutputType"><option value="constructed">构建指标</option><option value="ratio">比值指标</option></select></div><div id="metricDynamic"></div><div class="form-row"><label>结果表显示</label><select id="metricVisible"><option value="1">显示</option><option value="0">隐藏，仅供规则/比值使用</option></select></div><div class="inline"><button class="btn primary" id="saveMetric">保存指标</button><button class="btn" id="clearMetric">清空输入</button></div><div id="metricStatus" class="small"></div></div>
-  <div class="builder-panel section anchor-section" id="metrics-rule-builder"><h2>规则 / 标签构建器</h2><input type="hidden" id="ruleEditId"><div class="form-row"><label>规则名称</label><input id="ruleName" placeholder="例如：高潜未合作博主"></div><div class="form-row"><label>规则分组</label><input id="ruleGroup" placeholder="例如：合作判断"></div><div class="form-row top"><label>规则说明</label><textarea id="ruleDescription" rows="2" placeholder="说明规则用途"></textarea></div><div id="ruleConditions"></div><div class="inline"><button class="btn" id="addRuleCondition">添加条件</button><button class="btn primary" id="saveRule">保存规则</button><button class="btn" id="clearRule">清空</button></div><div class="small">条件类型包括博主客观数据、博主标签、构建指标和比值指标。博主标签使用“存在 / 不存在”，不填写数字阈值。第二条起可逐条选择 AND / OR / NOT。</div></div>
+  <div class="builder-panel anchor-section" id="metrics-builder"><h2>指标构建器</h2><input type="hidden" id="metricEditId"><div class="form-row"><label>指标名称</label><input id="metricName" placeholder="例如：近90天教程视频播放中位数"></div><div class="form-row"><label>指标分组</label><input id="metricGroup" placeholder="例如：流量指标 / 合作判断"></div><div class="form-row top"><label>业务说明</label><textarea id="metricDescription" rows="2" placeholder="说明该指标的业务含义、使用场景或口径"></textarea></div><div class="form-row"><label>输出类型</label><select id="metricOutputType"><option value="constructed">构建指标</option><option value="ratio">比值指标</option></select></div><div id="metricDynamic"></div><div class="form-row"><label>结果表显示</label><select id="metricVisible"><option value="1">显示</option><option value="0">隐藏，仅供规则/比值使用</option></select></div><div class="inline"><button class="btn primary" id="saveMetric">保存指标</button><button class="btn" id="clearMetric">清空输入</button></div><div id="metricStatus" class="small"></div></div>
+  <div class="builder-panel section anchor-section" id="metrics-rule-builder"><h2>规则 / 标签构建器</h2><input type="hidden" id="ruleEditId"><div class="form-row"><label>规则名称</label><input id="ruleName" placeholder="例如：高潜成长型博主"></div><div class="form-row"><label>规则分组</label><input id="ruleGroup" placeholder="例如：合作判断"></div><div class="form-row top"><label>规则说明</label><textarea id="ruleDescription" rows="2" placeholder="说明规则用途"></textarea></div><div id="ruleConditions"></div><div class="inline"><button class="btn" id="addRuleCondition">添加条件</button><button class="btn primary" id="saveRule">保存规则</button><button class="btn" id="clearRule">清空</button></div><div class="small">条件类型包括博主客观数据、博主标签、构建指标和比值指标。博主标签使用“存在 / 不存在”，不填写数字阈值。第二条起可逐条选择 AND / OR / NOT。</div></div>
 </div><div><div class="builder-panel anchor-section" id="metrics-saved"><div class="inline spread"><div><h2>已构建指标</h2><span class="small">支持搜索、分组管理、排序与分页；输入新分组名即可创建分组。</span></div><span id="metricCatalogSummary" class="small"></span></div><div class="catalog-toolbar section"><input id="metricCatalogSearch" class="input" placeholder="搜索指标名称 / 分组 / 说明"><select id="metricGroupFilter" class="select"><option value="">全部分组</option></select><select id="metricCatalogSort" class="select"><option value="updated_at">更新时间</option><option value="name">指标名称</option><option value="group">分组</option><option value="type">指标类型</option></select><select id="metricCatalogDir" class="select"><option value="desc">降序</option><option value="asc">升序</option></select></div><div class="catalog-toolbar catalog-selection section"><span id="metricCatalogSelected" class="small">已选择 0 项</span><input id="metricMoveGroup" class="input" list="metricGroupOptions" placeholder="移动到分组（输入可新建）"><datalist id="metricGroupOptions"></datalist><button class="btn" id="metricMoveGroupBtn">移动到分组</button><button class="btn" id="metricUngroupBtn">设为未分组</button><span class="small">每页</span><input id="metricCatalogPageSize" class="input" type="number" min="1" max="500" value="30" style="width:76px;min-width:76px"><button class="btn" id="metricCatalogPageSizeOk">确定</button></div><div id="metricList" class="metric-list section"></div><div class="pager"><button class="btn" id="metricCatalogFirst">第一页</button><button class="btn" id="metricCatalogPrev">上一页</button><span id="metricCatalogButtons" class="inline"></span><button class="btn" id="metricCatalogNext">下一页</button><button class="btn" id="metricCatalogLast">最后一页</button><span class="small">跳转到</span><input id="metricCatalogPageInput" class="input" type="number" min="1" value="1"><button class="btn" id="metricCatalogJump">跳转</button><span id="metricCatalogPageInfo" class="small"></span></div></div><div class="builder-panel section anchor-section" id="metrics-rules"><div class="inline spread"><div><h2>规则列表</h2><span class="small">规则作用对象始终是博主；支持搜索、分组、排序与分页。</span></div><span id="ruleCatalogSummary" class="small"></span></div><div class="catalog-toolbar section"><input id="ruleCatalogSearch" class="input" placeholder="搜索规则名称 / 分组 / 说明"><select id="ruleGroupFilter" class="select"><option value="">全部分组</option></select><select id="ruleCatalogSort" class="select"><option value="updated_at">更新时间</option><option value="name">规则名称</option><option value="group">分组</option><option value="conditions">条件数量</option></select><select id="ruleCatalogDir" class="select"><option value="desc">降序</option><option value="asc">升序</option></select></div><div class="catalog-toolbar catalog-selection section"><span id="ruleCatalogSelected" class="small">已选择 0 项</span><input id="ruleMoveGroup" class="input" list="ruleGroupOptions" placeholder="移动到分组（输入可新建）"><datalist id="ruleGroupOptions"></datalist><button class="btn" id="ruleMoveGroupBtn">移动到分组</button><button class="btn" id="ruleUngroupBtn">设为未分组</button><span class="small">每页</span><input id="ruleCatalogPageSize" class="input" type="number" min="1" max="500" value="30" style="width:76px;min-width:76px"><button class="btn" id="ruleCatalogPageSizeOk">确定</button></div><div id="ruleList" class="metric-list section"></div><div class="pager"><button class="btn" id="ruleCatalogFirst">第一页</button><button class="btn" id="ruleCatalogPrev">上一页</button><span id="ruleCatalogButtons" class="inline"></span><button class="btn" id="ruleCatalogNext">下一页</button><button class="btn" id="ruleCatalogLast">最后一页</button><span class="small">跳转到</span><input id="ruleCatalogPageInput" class="input" type="number" min="1" value="1"><button class="btn" id="ruleCatalogJump">跳转</button><span id="ruleCatalogPageInfo" class="small"></span></div></div></div></div>
 <div class="section anchor-section" id="metrics-results"><div class="title compact-title"><div><h1>应用结果 · 博主库</h1><div class="sub">全部条件最终都在博主粒度上执行。可添加多条筛选条件，并逐条使用 AND / OR / NOT。</div></div></div>
 <div class="builder-panel"><div id="resultFilterConditions"></div><div class="inline"><button class="btn" id="addResultFilter">添加筛选条件</button><button class="btn primary" id="applyFilter">应用筛选</button><button class="btn" id="clearFilter">清除全部条件</button><select id="activeRule" class="select"><option value="">全部博主（不应用规则）</option></select><input id="metricSearch" class="input" placeholder="搜索博主 / 国家 / Channel ID"><span id="resultConditionStatus" class="small"></span></div></div>
@@ -485,9 +486,10 @@ def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:
         encoding="utf-8",
     )
     row=conn.execute("SELECT value_json FROM workspace_settings WHERE workspace_id=? AND key='secondary_metrics'",(wid,)).fetchone() if wid else None
-    if not row:
-        row=conn.execute("SELECT value_json FROM app_settings WHERE key='secondary_metrics'").fetchone()
-    saved=json_load(row["value_json"],None) if row else load_metric_config()
+    # V4.2: a Workspace with no metric configuration starts empty. Never inherit global
+    # V3-era app_settings or installation defaults into a generic Workspace. Compatibility
+    # migration is handled explicitly by WorkspaceService._scope_legacy_metric_config().
+    saved=json_load(row["value_json"],None) if row else {"schema_version":1,"metrics":[],"rules":[],"activeRule":"","filters":[]}
     (assets/"metrics_config.js").write_text(
         "window.CDH_SAVED_METRIC_CONFIG="+(json.dumps(saved,ensure_ascii=False,separators=(",",":")) if saved else "null")+";\n",
         encoding="utf-8",
@@ -501,3 +503,5 @@ def write_metric_assets(conn, out:Path, creators:list[dict[str,Any]], last_sync:
         (assets/"overview_filters.js").write_text(overview_js.read_text(encoding="utf-8"),encoding="utf-8")
     return {"creators":len(facts_payload["creators"]),"cubes":cube_count,"video_rows_exported":0,"saved_config":int(bool(saved)),"metric_cache_hit":int(cache_hit)}
 
+
+# V4.2 neutral-surface: metric-workspace
