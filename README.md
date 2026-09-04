@@ -6,54 +6,16 @@
 
 The project turns YouTube Creator/Video facts into a reusable intelligence system: discovery, monitoring, human review, Workspace-specific brand/taxonomy semantics, commercial metrics, constructed metrics, durable jobs, exports and auditable AI outputs. Private business data is deliberately kept outside Git.
 
-## Installation / Quick start
+## 60-second public demo
 
-### Normal local installation
-
-Windows 10/11 with Python 3.10+:
-
-```bat
-git clone https://github.com/Nikolaustis/YouTube_Creator_Data_Hub.git
-cd YouTube_Creator_Data_Hub
-setup.cmd
-```
-
-`setup.cmd` checks Python, installs runtime dependencies, initializes/upgrades the local SQLite schema, offers to configure `YOUTUBE_API_KEY`, runs diagnostics and builds the Dashboard.
-
-After setup:
-
-```bat
-start-dashboard.cmd
-```
-
-Open:
-
-```text
-http://127.0.0.1:8765/
-```
-
-YouTube discovery/sync requires a **YouTube Data API v3 API key**. AI is optional and can be configured later with:
-
-```bat
-setup-ai.cmd
-```
-
-For the complete Windows installation guide, API-key setup, troubleshooting, static mode, monitoring and AI configuration, see:
-
-**[docs/INSTALLATION.md](docs/INSTALLATION.md)**
-
-### 60-second public demo
-
-If you only want to review the project without private data or a production database:
+Windows:
 
 ```bat
 setup-demo.cmd
 start-demo.cmd
 ```
 
-The demo creates a deterministic **synthetic** SQLite database. It never reads or modifies the production database.
-
-For the typed API and OpenAPI documentation:
+The demo creates a deterministic **synthetic** SQLite database. It never reads or modifies the production database. For the typed API and OpenAPI documentation:
 
 ```bat
 start-api.cmd
@@ -100,7 +62,7 @@ Brands, brand groups, taxonomies, Creator relationships, business metric definit
 
 ## Neutral-surface status
 
-V4.2 completes the **neutral public/default surface**. The active generic Workspace no longer inherits unscoped historical metrics, browser state is Workspace-scoped, default Dashboard columns and examples are domain-neutral, and compatibility templates are hidden from the public template catalog. Historical compatibility data is preserved in an opt-in compatibility Workspace instead of being auto-activated.
+V4.4 keeps Creator Discovery domain-neutral and turns Query Expansion into a **Workspace Query Pack Editor**. The built-in multilingual catalog (`learn / review / use_case / updates / community / custom`) is now only a factory template: groups can be renamed, described, added, copied, deleted and reordered, while every language keeps an independent term list. Schema-4 Query Profiles are Workspace-scoped and preserved across normal upgrades; 4.3 term edits are migrated instead of reset. Compatibility templates/config remain isolated under `creator_hub/compat/` and are not exposed by the public template catalog.
 
 ## Reproducible evidence
 
@@ -127,7 +89,7 @@ The evaluator reports structured-output rate, evidence coverage and unsupported-
 ```bash
 pip install -r requirements-dev.txt
 pytest
-ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/check_public_surface_neutrality.py scripts/neutralize_public_surface.py scripts/repo_hygiene.py
+ruff check creator_hub/api creator_hub/portfolio creator_hub/compat creator_hub/jobs.py creator_hub/monitoring.py creator_hub/field_registry.py creator_hub/ai/local_tools.py tests scripts/check_core_portability.py scripts/check_public_surface_neutrality.py scripts/neutralize_public_surface.py scripts/neutralize_discovery_surface.py scripts/query_pack_editor.py scripts/repo_hygiene.py
 python scripts/check_core_portability.py
 python -m scripts.check_public_surface_neutrality
 ```
@@ -135,9 +97,7 @@ python -m scripts.check_public_surface_neutrality
 ## Main commands
 
 ```text
-setup.cmd             Normal first-run setup / repair
 start-dashboard.cmd   Existing full interactive Dashboard (compatibility server)
-setup-ai.cmd          Optional AI provider/model configuration
 start-api.cmd         Typed FastAPI / OpenAPI surface
 setup-demo.cmd        Install runtime dependencies + generate synthetic data
 create-demo.cmd       Regenerate deterministic synthetic data
@@ -152,17 +112,22 @@ Git must not contain production SQLite files, API keys, exports, backups, logs, 
 
 ## Documentation
 
-- `docs/INSTALLATION.md` — Windows installation, first run and troubleshooting
 - `docs/PORTFOLIO.md` — reviewer/portfolio workflow
 - `docs/API_FASTAPI.md` — typed API migration
 - `docs/ARCHITECTURE.md` — system architecture
 - `docs/DATA_CONTRACT.md` — fact/derived/AI/human precedence
 - `docs/BENCHMARKS.md` — performance evidence policy
 - `docs/AI_EVALUATION.md` — grounding evaluation
+- `docs/QUERY_EXPANSION.md` — domain-neutral Creator Discovery query expansion
 - `docs/OPERATIONS.md` — production operations
 - `docs/WORKSPACES.md` — Workspace model
-- `docs/RELEASE_NOTES_4.2.0.md` — neutral-surface migration notes
+- `docs/RELEASE_NOTES_4.4.0.md` — neutral-surface migration notes
 
 ## Version
 
-`4.2.0` · Database Schema remains `18`; this release changes presentation/config scoping, not production Creator/Video facts.
+`4.4.0` · Database Schema remains `18`; this release changes presentation/config scoping, not production Creator/Video facts.
+
+
+## Query Pack Editor (4.4.0)
+
+Query Expansion groups are Workspace-scoped editable strategy objects. Users can rename and describe groups, enable/disable them, add/delete/duplicate/reorder groups, edit per-language terms, restore one system group, restore the current language defaults, or restore the full system catalog. User-defined groups are stored in the Workspace `query_profile` and are not overwritten by normal upgrades.
