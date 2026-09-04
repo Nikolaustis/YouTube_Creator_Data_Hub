@@ -6,16 +6,54 @@
 
 The project turns YouTube Creator/Video facts into a reusable intelligence system: discovery, monitoring, human review, Workspace-specific brand/taxonomy semantics, commercial metrics, constructed metrics, durable jobs, exports and auditable AI outputs. Private business data is deliberately kept outside Git.
 
-## 60-second public demo
+## Installation / Quick start
 
-Windows:
+### Normal local installation
+
+Windows 10/11 with Python 3.10+:
+
+```bat
+git clone https://github.com/Nikolaustis/YouTube_Creator_Data_Hub.git
+cd YouTube_Creator_Data_Hub
+setup.cmd
+```
+
+`setup.cmd` checks Python, installs runtime dependencies, initializes/upgrades the local SQLite schema, offers to configure `YOUTUBE_API_KEY`, runs diagnostics and builds the Dashboard.
+
+After setup:
+
+```bat
+start-dashboard.cmd
+```
+
+Open:
+
+```text
+http://127.0.0.1:8765/
+```
+
+YouTube discovery/sync requires a **YouTube Data API v3 API key**. AI is optional and can be configured later with:
+
+```bat
+setup-ai.cmd
+```
+
+For the complete Windows installation guide, API-key setup, troubleshooting, static mode, monitoring and AI configuration, see:
+
+**[docs/INSTALLATION.md](docs/INSTALLATION.md)**
+
+### 60-second public demo
+
+If you only want to review the project without private data or a production database:
 
 ```bat
 setup-demo.cmd
 start-demo.cmd
 ```
 
-The demo creates a deterministic **synthetic** SQLite database. It never reads or modifies the production database. For the typed API and OpenAPI documentation:
+The demo creates a deterministic **synthetic** SQLite database. It never reads or modifies the production database.
+
+For the typed API and OpenAPI documentation:
 
 ```bat
 start-api.cmd
@@ -97,7 +135,9 @@ python -m scripts.check_public_surface_neutrality
 ## Main commands
 
 ```text
+setup.cmd             Normal first-run setup / repair
 start-dashboard.cmd   Existing full interactive Dashboard (compatibility server)
+setup-ai.cmd          Optional AI provider/model configuration
 start-api.cmd         Typed FastAPI / OpenAPI surface
 setup-demo.cmd        Install runtime dependencies + generate synthetic data
 create-demo.cmd       Regenerate deterministic synthetic data
@@ -112,6 +152,7 @@ Git must not contain production SQLite files, API keys, exports, backups, logs, 
 
 ## Documentation
 
+- `docs/INSTALLATION.md` — Windows installation, first run and troubleshooting
 - `docs/PORTFOLIO.md` — reviewer/portfolio workflow
 - `docs/API_FASTAPI.md` — typed API migration
 - `docs/ARCHITECTURE.md` — system architecture
